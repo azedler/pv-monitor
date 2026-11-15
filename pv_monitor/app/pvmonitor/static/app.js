@@ -149,13 +149,14 @@ function renderCharts() {
   const defs = [
     ["amort", "Erlös gegen Investition", "Kumulierter Erlös, saisonal fortgeschrieben bis zum Break-even."],
     ["quota", "Autarkiegrad und Eigenverbrauchsquote", "Gleitend über 12 Monate, dünn der einzelne Monat."],
-    ["price", "Effektivpreis je bezogener kWh", "Arbeitspreis plus anteiliger Grundpreis, geteilt durch den Netzbezug."],
+    ["cost", "Stromkosten", "Was der Netzbezug im Monat gekostet hat: Arbeitspreis mal kWh, dazu der anteilige Grundpreis."],
+    ["price", "Effektivpreis je bezogener kWh", "Kosten inklusive Grundpreis geteilt durch den Netzbezug, über 12 Monate. Ein einzelner Sommermonat sagt hier nichts, weil der Grundpreis auf wenige kWh fällt."],
     ["years", "Netzbezug im Jahresvergleich", "Bezogene kWh je Kalendermonat."],
     ["balance", "Energiebilanz", "Eigenverbrauch und Einspeisung ergeben den PV-Ertrag."],
     ["revenue", "Monatserlös", "Ersparnis durch Eigenverbrauch plus Einspeisevergütung."],
     ["battery", "Batteriedurchsatz", "Geladene und entladene kWh je Monat."],
   ];
-  const ranged = new Set(["quota", "price", "balance", "revenue", "battery"]);
+  const ranged = new Set(["quota", "cost", "price", "balance", "revenue", "battery"]);
   el.innerHTML =
     `<div class="range" role="group" aria-label="Zeitraum">${[[12, "12 Monate"], [24, "24 Monate"], [0, "Alles"]]
       .map(([v, t]) => `<button data-range="${v}" class="${chartRange === v ? "active" : ""}">${t}</button>`)
@@ -204,13 +205,32 @@ function renderCharts() {
     ],
   });
 
-  // 3 effective price
+  // 3 monthly electricity cost, energy and base price stacked
+  Charts.draw($("#chart-cost"), {
+    title: "Stromkosten",
+    labels, ticks,
+    format: (v) => eur(v, 0),
+    series: [
+      { name: "Arbeitspreis", type: "bar", stack: "cost", color: "var(--s1)", values: col("cost_energy") },
+      { name: "Grundpreis", type: "bar", stack: "cost", color: "var(--s2)", values: col("base_month") },
+    ],
+  });
+
+  // 3b effective price over 12 months: a single month divides the base price
+  // by almost no draw in summer and explodes
+  const eff12 = new Map();
+  real.forEach((m, i) => {
+    const year = real.slice(Math.max(0, i - 11), i + 1);
+    const drawn = year.reduce((n, x) => n + x.grid_kwh + x.heat_kwh, 0);
+    const complete = year.length === 12 && year.every((x) => x.cost_total != null && x.base_month != null);
+    eff12.set(m.month, complete && drawn > 0 ? year.reduce((n, x) => n + x.cost_total, 0) / drawn : null);
+  });
   Charts.draw($("#chart-price"), {
     title: "Effektivpreis je bezogener kWh",
     labels, ticks,
     format: (v, axis) => nf(axis ? 2 : 4).format(v) + " €",
     series: [
-      { name: "Effektivpreis", type: "line", color: "var(--s1)", values: col("effective_price") },
+      { name: "Effektivpreis 12 Monate", type: "line", color: "var(--s1)", values: win.map((m) => eff12.get(m.month)) },
       { name: "Arbeitspreis", type: "line", color: "var(--s2)", values: col("price") },
     ],
   });
