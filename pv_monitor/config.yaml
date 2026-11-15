@@ -1,7 +1,7 @@
 name: PV Monitor
-version: "0.2.1"
+version: "0.3.0"
 slug: pv_monitor
-description: PV-Wirtschaftlichkeit mit Tarifhistorie, Amortisation und Monatswerten
+description: Anlagenbild mit Strings und Verbrauchern, dazu Wirtschaftlichkeit mit Tarifhistorie
 arch:
   - aarch64
   - amd64

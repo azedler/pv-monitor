@@ -566,6 +566,7 @@ document.querySelectorAll("#tabs button").forEach((btn) =>
     document.querySelectorAll("main > section").forEach((s) => (s.hidden = s.id !== btn.dataset.tab));
     // charts measure their container, so they are drawn once it is visible
     if (state && chartsVisible()) renderCharts();
+    Plant.onTab(btn.dataset.tab);
   })
 );
 

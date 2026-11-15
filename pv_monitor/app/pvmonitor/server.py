@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from contextlib import closing
@@ -14,7 +15,7 @@ from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import calc, db, excel_import
+from . import calc, db, excel_import, ha, plant
 
 STATIC = Path(__file__).parent / "static"
 INGRESS_PROXY = "172.30.32.2"
@@ -274,7 +275,100 @@ async def import_excel(request):
         return JSONResponse({"imported": counts, "state": build_state(con)})
 
 
+def load_layout(con):
+    raw = db.get_setting(con, "plant_layout")
+    if not raw:
+        return dict(plant.EMPTY)
+    try:
+        return plant.validate_layout(json.loads(raw))
+    except (ValueError, plant.Invalid):
+        return dict(plant.EMPTY)
+
+
+def _layout():
+    with closing(db.connect(db_path())) as con:
+        return load_layout(con)
+
+
+async def get_layout(request):
+    return JSONResponse({"layout": _layout(), "ha": ha.available()})
+
+
+async def put_layout(request):
+    try:
+        layout = plant.validate_layout(await request.json())
+    except ValueError as exc:  # plant.Invalid and malformed JSON
+        return _json_error(str(exc) if isinstance(exc, plant.Invalid) else "ungültiges JSON")
+    with closing(db.connect(db_path())) as con:
+        db.set_setting(con, "plant_layout", json.dumps(layout))
+        con.commit()
+    return JSONResponse({"layout": layout, "ha": ha.available()})
+
+
+def ha_endpoint(fn):
+    """Run ``fn(request)`` and turn Home Assistant failures into a 502."""
+
+    async def handler(request):
+        try:
+            return JSONResponse(await fn(request))
+        except ha.HaError as exc:
+            return _json_error(str(exc), 502)
+        except plant.Invalid as exc:
+            return _json_error(str(exc))
+
+    return handler
+
+
+async def plant_entities(request):
+    return {"entities": await ha.entities()}
+
+
+async def plant_live(request):
+    layout = _layout()
+    values = await ha.states(plant.entities(layout, plant.LIVE))
+    return plant.compose(layout, values, plant.LIVE)
+
+
+async def plant_history(request):
+    """Energy per element for a day, month or year from the long-term statistics."""
+    period = request.query_params.get("period", "day")
+    day = request.query_params.get("date", "")
+    layout = _layout()
+    start, end = plant.period_range(period, day, await ha.time_zone())
+    ids = plant.entities(layout, plant.ENERGY)
+    rows = await ha.statistics(ids, start.isoformat(), end.isoformat(), plant.PERIODS[period])
+    values, buckets = {}, {}
+    for entity, entity_rows in rows.items():
+        total = None
+        for row in entity_rows:
+            energy = ha.row_energy_kwh(row)
+            if energy is None:
+                continue
+            total = (total or 0.0) + energy
+            buckets.setdefault(row["start"], {})[entity] = energy
+        values[entity] = total
+    result = plant.compose(layout, values, plant.ENERGY)
+    result.update(period=period, start=start.isoformat(), end=end.isoformat())
+    # the same picture per statistics bucket, for the time slider and the curves
+    result["steps"] = [
+        {
+            "start": start_ms,
+            "strings": {
+                s["id"]: s["value"]
+                for s in plant.compose(layout, buckets[start_ms], plant.ENERGY)["strings"]
+            },
+        }
+        for start_ms in sorted(buckets)
+    ]
+    return result
+
+
 routes = [
+    Route("/api/plant/layout", get_layout),
+    Route("/api/plant/layout", put_layout, methods=["PUT"]),
+    Route("/api/plant/entities", ha_endpoint(plant_entities)),
+    Route("/api/plant/live", ha_endpoint(plant_live)),
+    Route("/api/plant/history", ha_endpoint(plant_history)),
     Route("/api/state", endpoint(get_state)),
     Route("/api/investments", endpoint(create_investment), methods=["POST"]),
     Route("/api/investments/{id:int}", endpoint(update_investment), methods=["PUT"]),

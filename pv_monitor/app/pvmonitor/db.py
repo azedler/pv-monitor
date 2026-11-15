@@ -50,23 +50,6 @@ CREATE TABLE IF NOT EXISTS monthly_values (
     battery_charged REAL,
     battery_discharged REAL
 );
-CREATE TABLE IF NOT EXISTS roof_areas (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    azimuth REAL,
-    tilt REAL,
-    geometry TEXT
-);
-CREATE TABLE IF NOT EXISTS strings (
-    id INTEGER PRIMARY KEY,
-    roof_area_id INTEGER REFERENCES roof_areas(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    module_count INTEGER,
-    module_watts REAL,
-    inverter TEXT,
-    sensor_id TEXT,
-    grid_position TEXT
-);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT

@@ -2,12 +2,14 @@
   --bg: #f4f5f7; --card: #fff; --text: #1c1f24; --muted: #667080; --line: #dfe3e8;
   --accent: #0b6e4f; --warn: #b3261e; --warn-bg: #fdecea; --ok: #0b6e4f; --input: #fff8d6;
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --seq-lo: #cde2fb; --seq-hi: #104281;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #14171a; --card: #1e2227; --text: #e8eaed; --muted: #9aa3ad; --line: #32383f;
     --accent: #5fd0a5; --warn: #ff8a80; --warn-bg: #3a1f1d; --ok: #5fd0a5; --input: #3a3520;
     --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --seq-lo: #1a2e45; --seq-hi: #9ec5f4;
   }
 }
 * { box-sizing: border-box; }
@@ -88,3 +90,47 @@ ul.checks li.na { color: var(--muted); }
 .range button { border: 1px solid var(--line); background: var(--card); color: var(--text); font: inherit; border-radius: 999px; padding: 7px 14px; min-height: 40px; cursor: pointer; }
 .range button.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 .chart-note { margin: 2px 0 8px; }
+.picture { padding: 10px 8px; }
+.picture svg { display: block; width: 100%; height: auto; max-width: 560px; margin: 0 auto; }
+.roof .area { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.roof .area-title { fill: var(--muted); font-size: 11px; }
+.roof .cell { cursor: pointer; transition: fill .25s; }
+.roof .cell.sel { stroke: var(--text); stroke-width: 1.5; }
+.roof .string-label { font-size: 10px; font-weight: 600; fill: var(--text); paint-order: stroke; stroke: var(--card); stroke-width: 3px; pointer-events: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 4px 2px; justify-content: center; }
+.chip { display: flex; align-items: center; gap: 8px; text-align: left; font: inherit; font-size: .85rem; color: var(--text); background: none; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.chip.sel { border-color: var(--text); }
+.chip i { width: 14px; height: 14px; border-radius: 3px; flex: none; border: 1px solid var(--line); }
+.chip small { display: block; color: var(--muted); }
+.slider { display: flex; align-items: center; gap: 10px; padding: 8px 6px 0; }
+.slider input { flex: 1; min-height: 32px; padding: 0; background: none; border: 0; accent-color: var(--accent); }
+.slider span { min-width: 7.5em; text-align: right; font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.datenav { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 10px; font-weight: 600; }
+.datenav button { font: inherit; font-size: 1.3rem; line-height: 1; width: 44px; height: 44px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+.datenav span { min-width: 9em; text-align: center; }
+.flows .node circle { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.flows .icon { font-size: 22px; }
+.flows .val { fill: var(--text); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.flows .sub { fill: var(--muted); font-size: 11px; }
+.flows .flow { stroke: var(--s1); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 2 8; }
+.flows .flow.idle { stroke: var(--line); stroke-dasharray: none; }
+.flows .flow.fwd { animation: flow 1s linear infinite; }
+.flows .flow.rev { animation: flow 1s linear infinite reverse; }
+@keyframes flow { to { stroke-dashoffset: -10; } }
+@media (prefers-reduced-motion: reduce) { .flows .flow { animation: none !important; } }
+.consumers { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.consumer { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.consumer .icon { grid-row: span 2; font-size: 1.5rem; }
+.consumer .name { color: var(--muted); font-size: .8rem; }
+.consumer b { font-variant-numeric: tabular-nums; }
+.consumer .bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--line); margin-top: 6px; overflow: hidden; }
+.consumer .bar i { display: block; height: 100%; background: var(--s1); border-radius: 2px; }
+.painter { display: grid; gap: 2px; margin-top: 12px; overflow-x: auto; }
+.pcell { border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: .6rem; padding: 0; overflow: hidden; cursor: pointer; }
+.pcell.on { background: color-mix(in oklab, var(--s1) calc(35% + var(--k, 0) * 11%), var(--card)); border-color: transparent; color: #fff; }
+.brushes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: .85rem; color: var(--muted); margin-bottom: 4px; }
+.brushes button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 999px; padding: 6px 12px; min-height: 36px; cursor: pointer; }
+.brushes button.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+label.check { display: flex; align-items: center; gap: 8px; grid-column: 1 / -1; }
+label.check input { width: 22px; min-height: 22px; height: 22px; }
+textarea { width: 100%; font: 12px/1.4 ui-monospace, monospace; color: var(--text); background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
