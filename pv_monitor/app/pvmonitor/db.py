@@ -95,12 +95,17 @@ ADDED_COLUMNS = (
 )
 
 
+STALE_NOTES = ("Einspeisevergütung, aus der Excel übernommen", "Wärmestrom, aus der Excel übernommen")
+
+
 def _migrate(con):
     """Bring a database created by an older version up to the schema."""
     for table, column, kind in ADDED_COLUMNS:
         have = {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
         if column not in have:
             con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+    # notes written by the removed one-time import; they only named their origin
+    con.execute("UPDATE tariffs SET note = NULL WHERE note IN (?, ?)", STALE_NOTES)
 
 
 def rows(con, sql, args=()):

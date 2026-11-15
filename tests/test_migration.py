@@ -36,12 +36,16 @@ def main():
     old = sqlite3.connect(path)
     old.executescript(OLD_TARIFFS)
     old.execute("INSERT INTO tariffs (kind, valid_from, energy_price, provider) VALUES ('grid', '2024-02-01', 0.28, 'A')")
+    for note in db.STALE_NOTES + ("Monatswert, netto",):
+        old.execute("INSERT INTO tariffs (kind, valid_from, energy_price, note) VALUES ('heat', '2023-10-01', 0.2, ?)", (note,))
     old.commit()
     old.close()
 
     con = db.connect(path)
     rows = db.rows(con, "SELECT * FROM tariffs")
-    assert len(rows) == 1 and rows[0]["provider"] == "A" and rows[0]["monthly_payment"] is None, rows
+    assert len(rows) == 4 and rows[0]["provider"] == "A" and rows[0]["monthly_payment"] is None, rows
+    # the import's origin notes are gone, a note the user can use stays
+    assert [r["note"] for r in rows[1:]] == [None, None, "Monatswert, netto"], rows
     assert db.update(con, "tariffs", db.TARIFF_FIELDS, rows[0]["id"], dict(rows[0], monthly_payment=120.0))
     con.commit()
     con.close()
