@@ -469,7 +469,8 @@ function renderTariffs() {
     <h2>Tarife</h2>
     <div class="scroll"><table>
       <thead><tr><th>gilt ab Monat</th><th>Art</th><th>Vertragsbeginn</th><th>Arbeitspreis €/kWh</th><th>Grundpreis €/Jahr</th><th>Abschlag €/Monat</th><th class="text">Anbieter / Notiz</th><th></th></tr></thead>
-      <tbody>${state.tariffs
+      <tbody>${[...state.tariffs]
+        .sort((a, b) => b.valid_from.localeCompare(a.valid_from) || a.kind.localeCompare(b.kind)) // newest first
         .map(
           (x) => `<tr><td>${monthLabel(x.valid_from.slice(0, 7))}</td><td>${KINDS[x.kind]}</td><td>${dateLabel(x.starts_on)}</td>
           <td>${nf(4).format(x.energy_price)}</td><td>${num(x.base_price_year, 2)}</td><td>${num(x.monthly_payment, 2)}</td>
