@@ -158,6 +158,21 @@ const Plant = (() => {
     return `<svg class="flows" viewBox="0 0 400 ${live() ? 196 : 208}" role="img" aria-label="Energiefluss">${svg}</svg>`;
   }
 
+  function forecastHtml() {
+    const f = data.forecast;
+    if (!live() || !f) return "";
+    const share = f.today && f.so_far != null ? Math.max(0, (f.so_far / f.today) * 100) : null; // may exceed 100
+    const cell = (label, value, sub) => `<div><span>${label}</span><b>${esc(energy(value))}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</div>`;
+    return `<div class="card forecast">
+      <div class="forecast-row">
+        ${cell("Heute bisher", f.so_far, share == null ? "" : `${nf(0).format(share)} % der Prognose`)}
+        ${cell("Prognose heute", f.today)}
+        ${cell("Prognose morgen", f.tomorrow)}
+      </div>
+      ${share == null ? "" : `<div class="forecast-bar" role="img" aria-label="Anteil der Tagesprognose erreicht"><i style="width:${Math.min(100, share).toFixed(1)}%"></i></div>`}
+    </div>`;
+  }
+
   function consumersHtml() {
     const list = data.consumers.map((c) => ({ ...c }));
     if (!list.length) return "";
@@ -203,7 +218,7 @@ const Plant = (() => {
       html += `<div class="card picture"><div class="roofwrap">${roofSvg(levels)}</div>`;
       if (!live() && data.steps && data.steps.length > 1)
         html += `<div class="slider"><input type="range" min="-1" max="${data.steps.length - 1}" value="${step}" aria-label="Zeitpunkt"><span>${step < 0 ? "ganzer Zeitraum" : esc(stepLabel(data.steps[step]))}</span></div>`;
-      html += `</div><div class="card picture">${flowSvg()}</div>${consumersHtml()}${detailHtml()}`;
+      html += `</div>${forecastHtml()}<div class="card picture">${flowSvg()}</div>${consumersHtml()}${detailHtml()}`;
     }
     el.innerHTML = html;
 
@@ -342,10 +357,12 @@ const Plant = (() => {
     el.innerHTML = `
       <datalist id="ents">${options}</datalist>
       <p class="muted">${haOk ? (known ? `${known.length} Sensoren aus Home Assistant stehen zur Auswahl.` : "Lade Sensoren aus Home Assistant …") : "Keine Verbindung zu Home Assistant, Sensoren lassen sich nur von Hand eintragen."}</p>
-      <h2>Monatswerte</h2>
+      <h2>Ertrag und Prognose</h2>
       <div class="card"><form onsubmit="return false">
         ${entityInput("yield_entity", draft.yield_entity, "Zähler PV-Ertrag gesamt")}
-      </form><p class="muted">Aus diesem Zähler und den Batteriezählern unten füllt „Monate“ PV-Ertrag und Batteriewerte selbst aus. Ohne Zähler wird die Summe der Strings genommen.</p></div>
+        ${entityInput("forecast_today_entity", draft.forecast_today_entity, "Prognose heute (kWh)")}
+        ${entityInput("forecast_tomorrow_entity", draft.forecast_tomorrow_entity, "Prognose morgen (kWh)")}
+      </form><p class="muted">Aus dem Zähler und den Batteriezählern unten füllt „Monate“ PV-Ertrag und Batteriewerte selbst aus. Die Prognose erscheint auf der Seite „Anlage“.</p></div>
       <h2>1. Strings</h2>${strings}
       <p><button class="secondary" data-act="add-string">String hinzufügen</button></p>
       <h2>2. Dachflächen</h2>${draft.strings.length ? "" : '<p class="muted">Lege zuerst die Strings an.</p>'}${areas}
@@ -421,7 +438,7 @@ const Plant = (() => {
     } else if (act === "import") {
       try {
         const doc = JSON.parse($("#layout-json").value);
-        draft = { areas: doc.areas || [], strings: doc.strings || [], devices: doc.devices || [], yield_entity: doc.yield_entity || null };
+        draft = { areas: doc.areas || [], strings: doc.strings || [], devices: doc.devices || [], yield_entity: doc.yield_entity || null, forecast_today_entity: doc.forecast_today_entity || null, forecast_tomorrow_entity: doc.forecast_tomorrow_entity || null };
         showError("");
       } catch (err) {
         return showError("Der Text ist kein gültiges JSON.");

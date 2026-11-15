@@ -15,7 +15,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 ENTITY = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
 IDENT = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 KINDS = ("grid", "battery", "consumer")
-EMPTY = {"areas": [], "strings": [], "devices": [], "yield_entity": None}
+FORECAST_KEYS = ("forecast_today_entity", "forecast_tomorrow_entity")
+EMPTY = {"areas": [], "strings": [], "devices": [], "yield_entity": None, **dict.fromkeys(FORECAST_KEYS)}
 MAX_ITEMS = 60
 MAX_SIDE = 40
 
@@ -154,6 +155,8 @@ def validate_layout(doc):
         "devices": devices,
         # the inverter's yield meter, for the monthly PV yield
         "yield_entity": _entity(doc, "yield_entity"),
+        # the yield forecast for today and tomorrow, in kWh
+        **{key: _entity(doc, key) for key in FORECAST_KEYS},
     }
 
 
@@ -192,6 +195,8 @@ def entities(layout, mode):
             out.add(_pick(dev, secondary))
         if mode == LIVE:
             out.add(dev.get("soc_entity"))
+    if mode == LIVE:
+        out.update(layout.get(key) for key in FORECAST_KEYS)
     out.discard(None)
     return out
 
@@ -300,6 +305,13 @@ def month_sources(layout):
     }
 
 
+def zone(tz_name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("UTC")
+
+
 def period_range(period: str, day: str, tz_name: str):
     """(start, end, label) of the day, month or year containing ``day``."""
     if period not in PERIODS:
@@ -308,10 +320,7 @@ def period_range(period: str, day: str, tz_name: str):
         d = datetime.strptime(day, "%Y-%m-%d")
     except (TypeError, ValueError):
         raise Invalid("Datum muss JJJJ-MM-TT sein") from None
-    try:
-        tz = ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, ValueError):
-        tz = ZoneInfo("UTC")
+    tz = zone(tz_name)
     if period == "day":
         start = d
         end = d + timedelta(days=1)

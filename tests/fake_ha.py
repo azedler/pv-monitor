@@ -38,6 +38,8 @@ STATES = {
     "sensor.outdoor_temperature": ("4.5", "°C"),
     "light.kitchen": ("on", None),
     "sun.sun": ("above_horizon", None),
+    "sensor.forecast_today": ("18500", "Wh"),
+    "sensor.forecast_tomorrow": ("24.0", "kWh"),
 }
 # kWh per full day for energy meters, peak W for power sensors
 DAILY_KWH = {
@@ -94,7 +96,7 @@ def _sun(hour):
 
 
 def _rows(entity_id, start, end, period):
-    step = {"hour": timedelta(hours=1), "day": timedelta(days=1)}.get(period)
+    step = {"5minute": timedelta(minutes=5), "hour": timedelta(hours=1), "day": timedelta(days=1)}.get(period)
     rows, cur = [], start
     while cur < end:
         if step:
@@ -102,12 +104,12 @@ def _rows(entity_id, start, end, period):
         else:  # month
             nxt = (cur.replace(day=1) + timedelta(days=32)).replace(day=1)
         hours = (nxt - cur).total_seconds() / 3600
-        share = _sun(cur.hour) if period == "hour" else hours / 24
+        share = _sun(cur.hour) * hours if period in ("hour", "5minute") else hours / 24
         row = {"start": int(cur.timestamp() * 1000), "end": int(nxt.timestamp() * 1000)}
         if entity_id in DAILY_KWH:
             row["change"] = DAILY_KWH[entity_id] * share
         else:
-            row["mean"] = PEAK_W[entity_id] * (share * 7.596 if period == "hour" else 0.25)
+            row["mean"] = PEAK_W[entity_id] * (_sun(cur.hour) * 7.596 if period in ("hour", "5minute") else 0.25)
         rows.append(row)
         cur = nxt
     return rows

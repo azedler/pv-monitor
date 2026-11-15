@@ -54,7 +54,7 @@ def near(a, b, tol=1e-6):
 
 def test_layout(c):
     empty = c.get("/api/plant/layout").json()
-    assert empty == {"layout": {"areas": [], "strings": [], "devices": [], "yield_entity": None}, "ha": True}
+    assert empty == {"layout": {"areas": [], "strings": [], "devices": [], "yield_entity": None, "forecast_today_entity": None, "forecast_tomorrow_entity": None}, "ha": True}
     saved = c.put("/api/plant/layout", json=LAYOUT)
     assert saved.status_code == 200, saved.text
     layout = c.get("/api/plant/layout").json()["layout"]
@@ -113,6 +113,29 @@ def test_night(c):
         assert near(night["pv"], day["pv"])
     finally:
         fake_ha.STATES["sun.sun"] = ("above_horizon", None)
+
+
+def test_forecast(c):
+    """Today's and tomorrow's yield forecast next to what was produced so far."""
+    assert "forecast" not in c.get("/api/plant/live").json()
+    doc = dict(LAYOUT, yield_entity="sensor.pv_total_energy", forecast_today_entity="sensor.forecast_today", forecast_tomorrow_entity="sensor.forecast_tomorrow")
+    assert c.put("/api/plant/layout", json=doc).status_code == 200
+    try:
+        fc = c.get("/api/plant/live").json()["forecast"]
+        assert fc["today"] == 18.5 and fc["tomorrow"] == 24.0  # Wh became kWh
+        asked = fake_ha.requests_seen[-1]
+        assert asked["period"] == "5minute" and asked["statistic_ids"] == ["sensor.pv_total_energy"]
+        assert "T00:00:00" in asked["start_time"]
+        assert fc["so_far"] is not None and 0 <= fc["so_far"] <= 60.0
+        seen = len(fake_ha.requests_seen)
+        assert c.get("/api/plant/live").json()["forecast"]["so_far"] == fc["so_far"]
+        assert len(fake_ha.requests_seen) == seen  # cached, the page polls every few seconds
+        # only tomorrow configured: today stays empty
+        c.put("/api/plant/layout", json=dict(LAYOUT, forecast_tomorrow_entity="sensor.forecast_tomorrow"))
+        fc = c.get("/api/plant/live").json()["forecast"]
+        assert fc["today"] is None and fc["tomorrow"] == 24.0
+    finally:
+        c.put("/api/plant/layout", json=LAYOUT)
 
 
 def test_history(c):
@@ -227,6 +250,6 @@ if __name__ == "__main__":
     client = TestClient(app)
     test_helpers()
     print("ok test_helpers")
-    for fn in (test_layout, test_entities, test_live, test_night, test_history, test_month_suggest, test_unreachable):
+    for fn in (test_layout, test_entities, test_live, test_night, test_forecast, test_history, test_month_suggest, test_unreachable):
         fn(client)
         print("ok", fn.__name__)

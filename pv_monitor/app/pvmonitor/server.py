@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
@@ -335,7 +336,40 @@ async def plant_live(request):
                 values[s["power_entity"]] = 0.0
     result = plant.compose(layout, values, plant.LIVE)
     result["night"] = night
+    today, tomorrow = (layout.get(key) for key in plant.FORECAST_KEYS)
+    if today or tomorrow:
+        result["forecast"] = {
+            "today": values.get(today) if today else None,
+            "tomorrow": values.get(tomorrow) if tomorrow else None,
+            "so_far": await _yield_today(layout),
+        }
     return result
+
+
+_yield_cache = {}  # sources -> (monotonic time, kWh); the page polls every few seconds
+
+
+async def _yield_today(layout):
+    """Energy produced since local midnight, from the 5-minute statistics."""
+    sources = tuple(plant.month_sources(layout)["pv_yield"])
+    if not sources:
+        return None
+    cached = _yield_cache.get(sources)
+    if cached and time.monotonic() - cached[0] < 60:
+        return cached[1]
+    tz = await ha.time_zone()
+    start, _ = plant.period_range("day", datetime.now(plant.zone(tz)).strftime("%Y-%m-%d"), tz)
+    rows = await ha.statistics(sources, start.isoformat(), datetime.now(start.tzinfo).isoformat(), "5minute")
+    parts = [ha.row_energy_kwh(r) for e in sources for r in rows.get(e, [])]
+    parts = [p for p in parts if p is not None]
+    if not rows:
+        value = 0.0  # early in the day there is no row yet: nothing produced, not unknown
+    elif all(rows.get(e) for e in sources):
+        value = round(sum(parts), 2)
+    else:
+        value = None  # one source is missing: no figure rather than one that is too small
+    _yield_cache[sources] = (time.monotonic(), value)
+    return value
 
 
 async def plant_history(request):
