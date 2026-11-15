@@ -133,15 +133,15 @@ const Plant = (() => {
       lines.map((t, i) => `<text class="sub" x="${x}" y="${y + 60 + i * 13}" text-anchor="middle">${esc(t)}</text>`).join("") +
       "</g>";
     // a line from a to b; the dashes run in the direction of the energy
-    const line = (x1, y1, x2, y2, flow) => {
+    const line = (x1, y1, x2, y2, flow, color) => {
       const cls = flow == null || Math.abs(flow) <= idle ? "idle" : flow > 0 ? "fwd" : "rev";
-      return `<line class="flow ${cls}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+      return `<line class="flow ${cls}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"${cls === "idle" ? "" : ` style="stroke:var(--c-${color})"`}/>`;
     };
-    let svg = line(200, 62, 200, 100, data.pv);
+    let svg = line(200, 62, 200, 100, data.pv, "sun");
     svg += `<g class="node"><circle cx="200" cy="34" r="27"/><text class="icon" x="200" y="34" dy="0.36em" text-anchor="middle">☀️</text><text class="val" x="236" y="31" >${esc(amount(data.pv))}</text><text class="sub" x="236" y="46">PV-Erzeugung</text></g>`;
     svg += node(200, 128, "🏠", amount(data.house), [live() ? "Verbrauch jetzt" : "Verbrauch"]);
     if (g) {
-      svg += line(100, 128, 172, 128, g.net);
+      svg += line(100, 128, 172, 128, g.net, g.net > 0 ? "cost" : "sun"); // bought power is red, fed-in sun is yellow
       // history shows both directions; a net figure would hide the exchange
       const lines = live()
         ? [g.net == null ? "Netz" : g.net > idle ? "Netzbezug" : g.net < -idle ? "Einspeisung" : "Netz"]
@@ -149,7 +149,7 @@ const Plant = (() => {
       svg += node(72, 128, "⚡", live() ? power(g.net == null ? null : Math.abs(g.net)) : energy(g.in), lines);
     }
     if (b) {
-      svg += line(228, 128, 300, 128, b.net); // positive = charging = towards the battery
+      svg += line(228, 128, 300, 128, b.net, "neutral"); // positive = charging = towards the battery
       const lines = live()
         ? [(b.net == null ? "Batterie" : b.net > idle ? "lädt" : b.net < -idle ? "entlädt" : "ruht") + (b.soc != null ? ` · ${nf(0).format(b.soc)} %` : "")]
         : ["geladen", `entladen ${energy(b.out)}`];
@@ -240,7 +240,7 @@ const Plant = (() => {
         labelHead: "Zeit",
         ticks: (label, i) => (mode === "day" ? (i % 3 === 0 ? String(new Date(data.steps[i].start).getHours()) : null) : mode === "month" ? label.slice(0, 2) : label.slice(0, 3)),
         format: (v) => nf(v < 10 ? 2 : 1).format(v) + " kWh",
-        series: [{ name: "Ertrag", type: "bar", color: "var(--s1)", values: data.steps.map((s) => s.strings[selected] ?? null) }],
+        series: [{ name: "Ertrag", type: "bar", color: "var(--c-sun)", values: data.steps.map((s) => s.strings[selected] ?? null) }],
       });
   }
 
@@ -295,6 +295,10 @@ const Plant = (() => {
       </form></div>`
       )
       .join("");
+    const brushes =
+      `<div class="brushes">Feld antippen setzt: ` +
+      [{ id: null, name: "leer" }, ...draft.strings].map((s) => `<button class="${brush === s.id ? "active" : ""}" data-act="brush" data-id="${esc(s.id ?? "")}">${esc(s.name)}</button>`).join("") +
+      "</div>";
     const areas = draft.areas
       .map((a, i) => {
         const c = Math.min(34, Math.floor(320 / a.cols));
@@ -312,13 +316,10 @@ const Plant = (() => {
         <label>Reihen<input data-p="areas.${i}.rows" type="number" min="1" max="40" inputmode="numeric" value="${a.rows}"></label>
         <div class="actions"><button class="link danger" data-act="del-area" data-i="${i}">Fläche entfernen</button></div>
       </form>
+      ${brushes}
       <div class="painter" style="grid-template-columns:repeat(${a.cols}, ${c}px);grid-auto-rows:${c}px">${cells}</div></div>`;
       })
       .join("");
-    const brushes =
-      `<div class="brushes">Module antippen setzt: ` +
-      [{ id: null, name: "leer" }, ...draft.strings].map((s) => `<button class="${brush === s.id ? "active" : ""}" data-act="brush" data-id="${esc(s.id ?? "")}">${esc(s.name)}</button>`).join("") +
-      "</div>";
     const devices = draft.devices
       .map((d, i) => {
         const two = d.kind !== "consumer";
@@ -343,7 +344,7 @@ const Plant = (() => {
       <p class="muted">${haOk ? (known ? `${known.length} Sensoren aus Home Assistant stehen zur Auswahl.` : "Lade Sensoren aus Home Assistant …") : "Keine Verbindung zu Home Assistant, Sensoren lassen sich nur von Hand eintragen."}</p>
       <h2>1. Strings</h2>${strings}
       <p><button class="secondary" data-act="add-string">String hinzufügen</button></p>
-      <h2>2. Dachflächen</h2>${draft.strings.length ? brushes : '<p class="muted">Lege zuerst die Strings an.</p>'}${areas}
+      <h2>2. Dachflächen</h2>${draft.strings.length ? "" : '<p class="muted">Lege zuerst die Strings an.</p>'}${areas}
       <p><button class="secondary" data-act="add-area">Dachfläche hinzufügen</button></p>
       <h2>3. Netz, Batterie und Verbraucher</h2>
       <p class="muted">Bei Netz und Batterie genügt ein Saldo-Sensor: positiv bedeutet Bezug bzw. Laden. Läuft er andersherum, das Vorzeichen umkehren.</p>${devices}

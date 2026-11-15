@@ -87,8 +87,8 @@ function checksHtml(checks) {
   );
 }
 
-function tile(label, value, sub) {
-  return `<div class="tile"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</div>`;
+function tile(label, value, sub, tone) {
+  return `<div class="tile${tone ? " tone-" + tone : ""}"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</div>`;
 }
 
 function renderOverview() {
@@ -107,29 +107,29 @@ function renderOverview() {
   el.innerHTML = `
     <h2>Wirtschaftlichkeit bis ${monthLabel(s.last_month)}</h2>
     <div class="tiles">
-      ${tile("Investition", eur(s.invest_total))}
-      ${tile("Erlös kumuliert", eur(s.revenue_total))}
-      ${tile("Amortisation", pct(s.amortisation), "offen " + eur(s.remaining, 0))}
+      ${tile("Investition", eur(s.invest_total), null, "cost")}
+      ${tile("Erlös kumuliert", eur(s.revenue_total), null, "gain")}
+      ${tile("Amortisation", pct(s.amortisation), "offen " + eur(s.remaining, 0), "gain")}
       ${tile("Break-even", beText, beSub)}
     </div>
     <h2>Letzte ${r.months} Monate</h2>
     <div class="tiles">
-      ${tile("PV-Ertrag", num(r.pv_yield) + " kWh")}
+      ${tile("PV-Ertrag", num(r.pv_yield) + " kWh", null, "sun")}
       ${tile("Autarkiegrad", pct(r.autarky))}
       ${tile("Eigenverbrauchsquote", pct(r.own_consumption_quota))}
-      ${tile("Netzbezug", num(r.grid_kwh) + " kWh")}
-      ${tile("Einspeisung", num(r.feed_kwh) + " kWh")}
-      ${tile("Erlös", eur(r.revenue))}
-      ${tile("Stromkosten", eur(r.cost_total), "inklusive Grundpreis")}
+      ${tile("Netzbezug", num(r.grid_kwh) + " kWh", null, "cost")}
+      ${tile("Einspeisung", num(r.feed_kwh) + " kWh", null, "sun")}
+      ${tile("Erlös", eur(r.revenue), null, "gain")}
+      ${tile("Stromkosten", eur(r.cost_total), "inklusive Grundpreis", "cost")}
     </div>
     <h2>${monthLabel(last.month)}</h2>
     <div class="tiles">
-      ${tile("PV-Ertrag", num(last.pv_yield) + " kWh")}
-      ${tile("selbst genutzt", num(last.self_use) + " kWh")}
-      ${tile("Netzbezug", num(last.grid_kwh) + " kWh")}
+      ${tile("PV-Ertrag", num(last.pv_yield) + " kWh", null, "sun")}
+      ${tile("selbst genutzt", num(last.self_use) + " kWh", null, "gain")}
+      ${tile("Netzbezug", num(last.grid_kwh) + " kWh", null, "cost")}
       ${tile("Autarkiegrad", pct(last.autarky))}
-      ${tile("Erlös", eur(last.revenue))}
-      ${tile("Effektivpreis", last.effective_price == null ? "–" : nf(4).format(last.effective_price) + " €", "je bezogener kWh")}
+      ${tile("Erlös", eur(last.revenue), null, "gain")}
+      ${tile("Effektivpreis", last.effective_price == null ? "–" : nf(4).format(last.effective_price) + " €", "je bezogener kWh", "cost")}
     </div>
     <h2>Prüfung ${monthLabel(last.month)}</h2>
     <div class="card">${checksHtml(state.checks)}</div>`;
@@ -139,6 +139,15 @@ const MONTH_NAMES = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "S
 const kwh = (v) => num(v) + " kWh";
 const yearTick = (label) => (label.startsWith("1/") ? label.slice(2) : null);
 
+// One meaning per colour, everywhere in the app.
+const COLOR_KEY = `<div class="colorkey" aria-label="Farben">
+  <span><i style="--c:var(--c-gain)"></i>selbst genutzt, gespart, Erlös</span>
+  <span><i style="--c:var(--c-sun)"></i>Sonne, Einspeisung</span>
+  <span><i style="--c:var(--c-cost)"></i>Netzbezug, Kosten</span>
+  <span><i style="--c:var(--c-fix)"></i>Grundpreis</span>
+  <span><i style="--c:var(--c-neutral)"></i>Batterie, Kennzahlen</span>
+</div>`;
+
 function renderCharts() {
   const el = $("#charts");
   const real = state.months.filter((m) => !m.baseline);
@@ -146,12 +155,15 @@ function renderCharts() {
     el.innerHTML = '<div class="card"><p>Noch keine Daten.</p></div>';
     return;
   }
+  const yearTotals = [...new Set(real.map((m) => m.month.slice(0, 4)))]
+    .map((yr) => `${yr}: ${num(real.filter((m) => m.month.startsWith(yr)).reduce((n, m) => n + m.grid_kwh + m.heat_kwh, 0))} kWh`)
+    .join(" · ");
   const defs = [
     ["amort", "Erlös gegen Investition", "Kumulierter Erlös, saisonal fortgeschrieben bis zum Break-even."],
     ["quota", "Autarkiegrad und Eigenverbrauchsquote", "Gleitend über 12 Monate, dünn der einzelne Monat."],
     ["cost", "Stromkosten", "Was der Netzbezug im Monat gekostet hat: Arbeitspreis mal kWh, dazu der anteilige Grundpreis."],
     ["price", "Effektivpreis je bezogener kWh", "Kosten inklusive Grundpreis geteilt durch den Netzbezug, über 12 Monate. Ein einzelner Sommermonat sagt hier nichts, weil der Grundpreis auf wenige kWh fällt."],
-    ["years", "Netzbezug im Jahresvergleich", "Bezogene kWh je Monat, die Jahre nacheinander und je Jahr in eigener Farbe."],
+    ["years", "Netzbezug im Jahresvergleich", "Bezogene kWh je Monat, die Jahre nacheinander. " + yearTotals + "."],
     ["balance", "Energiebilanz", "Eigenverbrauch und Einspeisung ergeben den PV-Ertrag."],
     ["revenue", "Monatserlös", "Ersparnis durch Eigenverbrauch plus Einspeisevergütung."],
     ["battery", "Batteriedurchsatz", "Geladene und entladene kWh je Monat."],
@@ -160,9 +172,9 @@ function renderCharts() {
   el.innerHTML =
     `<div class="range" role="group" aria-label="Zeitraum">${[[12, "12 Monate"], [24, "24 Monate"], [0, "Alles"]]
       .map(([v, t]) => `<button data-range="${v}" class="${chartRange === v ? "active" : ""}">${t}</button>`)
-      .join("")}</div>` +
+      .join("")}</div>${COLOR_KEY}` +
     defs
-      .map(([id, title, note]) => `<h2>${title}</h2><p class="muted chart-note">${note}${ranged.has(id) ? "" : " Immer der gesamte Zeitraum."}</p><div class="card chart" id="chart-${id}"></div>`)
+      .map(([id, title, note]) => `<h2>${title}</h2><p class="muted chart-note">${esc(note)}${ranged.has(id) ? "" : " Immer der gesamte Zeitraum."}</p><div class="card chart" id="chart-${id}"></div>`)
       .join("");
   el.querySelectorAll("[data-range]").forEach((b) =>
     b.addEventListener("click", () => {
@@ -186,9 +198,9 @@ function renderCharts() {
     ticks: (label, i) => (label.startsWith("1/") && Number(label.slice(2)) % 2 === 0 ? label.slice(2) : null),
     format: (v) => eur(v, 0),
     series: [
-      { name: "Erlös kumuliert", type: "line", color: "var(--s1)", values: real.map((m) => m.revenue_cum).concat(future.map(() => null)) },
-      { name: "Fortschreibung", type: "line", dashed: true, color: "var(--s1)", values: real.map((m, i) => (i === real.length - 1 && future.length ? m.revenue_cum : null)).concat(future.map((f) => f.revenue_cum)) },
-      { name: "Investition", type: "line", color: "var(--s2)", values: real.map((m) => m.invested).concat(future.map(() => total)) },
+      { name: "Erlös kumuliert", type: "line", color: "var(--c-gain)", values: real.map((m) => m.revenue_cum).concat(future.map(() => null)) },
+      { name: "Fortschreibung", type: "line", dashed: true, color: "var(--c-gain)", values: real.map((m, i) => (i === real.length - 1 && future.length ? m.revenue_cum : null)).concat(future.map((f) => f.revenue_cum)) },
+      { name: "Investition", type: "line", color: "var(--c-cost)", values: real.map((m) => m.invested).concat(future.map(() => total)) },
     ],
   });
 
@@ -198,10 +210,10 @@ function renderCharts() {
     labels, ticks,
     format: (v) => pct(v, 0),
     series: [
-      { name: "Autarkie 12 Monate", type: "line", color: "var(--s1)", values: col("rolling12_autarky") },
-      { name: "Eigenverbrauch 12 Monate", type: "line", color: "var(--s2)", values: col("rolling12_quota") },
-      { name: "Autarkie Monat", type: "line", faint: true, color: "var(--s1)", values: col("autarky") },
-      { name: "Eigenverbrauch Monat", type: "line", faint: true, color: "var(--s2)", values: col("own_consumption_quota") },
+      { name: "Autarkie 12 Monate", type: "line", color: "var(--c-neutral)", values: col("rolling12_autarky") },
+      { name: "Eigenverbrauch 12 Monate", type: "line", color: "var(--c-sun)", values: col("rolling12_quota") },
+      { name: "Autarkie Monat", type: "line", faint: true, color: "var(--c-neutral)", values: col("autarky") },
+      { name: "Eigenverbrauch Monat", type: "line", faint: true, color: "var(--c-sun)", values: col("own_consumption_quota") },
     ],
   });
 
@@ -211,8 +223,8 @@ function renderCharts() {
     labels, ticks,
     format: (v) => eur(v, 0),
     series: [
-      { name: "Arbeitspreis", type: "bar", stack: "cost", color: "var(--s1)", values: col("cost_energy") },
-      { name: "Grundpreis", type: "bar", stack: "cost", color: "var(--s2)", values: col("base_month") },
+      { name: "Arbeitspreis", type: "bar", stack: "cost", color: "var(--c-cost)", values: col("cost_energy") },
+      { name: "Grundpreis", type: "bar", stack: "cost", color: "var(--c-fix)", values: col("base_month") },
     ],
   });
 
@@ -230,13 +242,12 @@ function renderCharts() {
     labels, ticks,
     format: (v, axis) => nf(axis ? 2 : 4).format(v) + " €",
     series: [
-      { name: "Effektivpreis 12 Monate", type: "line", color: "var(--s1)", values: win.map((m) => eff12.get(m.month)) },
-      { name: "Arbeitspreis", type: "line", color: "var(--s2)", values: col("price") },
+      { name: "Effektivpreis 12 Monate", type: "line", color: "var(--c-cost)", values: win.map((m) => eff12.get(m.month)) },
+      { name: "Arbeitspreis", type: "line", color: "var(--c-neutral)", values: col("price") },
     ],
   });
 
   // 4 grid draw per month, the years one after another on a continuous axis
-  const years = [...new Set(real.map((m) => m.month.slice(0, 4)))];
   Charts.draw($("#chart-years"), {
     title: "Netzbezug im Jahresvergleich",
     labels: real.map((m) => monthLabel(m.month)),
@@ -245,13 +256,7 @@ function renderCharts() {
       return mon === "1" ? yr : mon === "7" ? "Jul" : null;
     },
     format: kwh,
-    series: years.map((yr, i) => ({
-      name: `${yr}: ${num(real.filter((m) => m.month.startsWith(yr)).reduce((n, m) => n + m.grid_kwh + m.heat_kwh, 0))} kWh`,
-      type: "bar",
-      stack: "year", // one bar per month, the colour follows the year
-      color: `var(--s${(i % 4) + 1})`,
-      values: real.map((m) => (m.month.startsWith(yr) ? m.grid_kwh + m.heat_kwh : null)),
-    })),
+    series: [{ name: "Netzbezug", type: "bar", color: "var(--c-cost)", values: real.map((m) => m.grid_kwh + m.heat_kwh) }],
   });
 
   // 5 energy balance
@@ -260,9 +265,9 @@ function renderCharts() {
     labels, ticks,
     format: kwh,
     series: [
-      { name: "Eigenverbrauch", type: "bar", stack: "pv", color: "var(--s1)", values: col("self_use") },
-      { name: "Einspeisung", type: "bar", stack: "pv", color: "var(--s2)", values: col("feed_kwh") },
-      { name: "Gesamtverbrauch", type: "line", color: "var(--s3)", values: col("total_consumption") },
+      { name: "Eigenverbrauch", type: "bar", stack: "pv", color: "var(--c-gain)", values: col("self_use") },
+      { name: "Einspeisung", type: "bar", stack: "pv", color: "var(--c-sun)", values: col("feed_kwh") },
+      { name: "Gesamtverbrauch", type: "line", color: "var(--c-neutral)", values: col("total_consumption") },
     ],
   });
 
@@ -272,8 +277,8 @@ function renderCharts() {
     labels, ticks,
     format: (v) => eur(v, 0),
     series: [
-      { name: "Ersparnis Eigenverbrauch", type: "bar", stack: "rev", color: "var(--s1)", values: col("saving") },
-      { name: "Einspeisevergütung", type: "bar", stack: "rev", color: "var(--s2)", values: col("feed_revenue") },
+      { name: "Ersparnis Eigenverbrauch", type: "bar", stack: "rev", color: "var(--c-gain)", values: col("saving") },
+      { name: "Einspeisevergütung", type: "bar", stack: "rev", color: "var(--c-sun)", values: col("feed_revenue") },
     ],
   });
 
@@ -283,8 +288,8 @@ function renderCharts() {
     labels, ticks,
     format: kwh,
     series: [
-      { name: "geladen", type: "bar", color: "var(--s1)", values: col("battery_charged") },
-      { name: "entladen", type: "bar", color: "var(--s2)", values: col("battery_discharged") },
+      { name: "geladen", type: "bar", color: "var(--c-neutral)", values: col("battery_charged") },
+      { name: "entladen", type: "bar", color: "var(--c-gain)", values: col("battery_discharged") },
     ],
   });
 }
@@ -367,8 +372,8 @@ function renderConfirm(result) {
     <div class="tiles">
       ${tile("Zählerstand Hausstrom", num(m.grid_reading, 0), m.baseline ? "Startwert" : `Bezug ${num(m.grid_kwh)} kWh`)}
       ${tile("Zählerstand Einspeisung", num(m.feed_reading, 0), m.baseline ? "Startwert" : `Einspeisung ${num(m.feed_kwh)} kWh`)}
-      ${tile("PV-Ertrag", num(m.pv_yield) + " kWh", `selbst genutzt ${num(m.self_use)} kWh`)}
-      ${tile("Erlös", eur(m.revenue), `Autarkie ${pct(m.autarky)}`)}
+      ${tile("PV-Ertrag", num(m.pv_yield) + " kWh", `selbst genutzt ${num(m.self_use)} kWh`, "sun")}
+      ${tile("Erlös", eur(m.revenue), `Autarkie ${pct(m.autarky)}`, "gain")}
     </div>
     <div class="card">${checksHtml(result.checks)}</div>
     <p class="actions">
@@ -479,7 +484,7 @@ function renderTariffs() {
       const diff = r.actual_cost == null ? null : r.alternative_cost - r.actual_cost;
       $("#compare-result").innerHTML = `<div class="tiles" style="margin-top:12px">
         ${tile("Netzbezug", num(r.grid_kwh) + " kWh", `letzte ${r.months} Monate`)}
-        ${tile("tatsächlich gezahlt", eur(r.actual_cost))}
+        ${tile("tatsächlich gezahlt", eur(r.actual_cost), null, "cost")}
         ${tile("mit diesem Tarif", eur(r.alternative_cost), diff == null ? "" : (diff > 0 ? "teurer um " : "günstiger um ") + eur(Math.abs(diff)))}
         ${tile("Gleichstand bei", r.break_even_kwh == null ? "–" : num(r.break_even_kwh) + " kWh/Jahr", "gegen den aktuellen Tarif")}
       </div>`;
