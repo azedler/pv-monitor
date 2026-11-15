@@ -27,10 +27,7 @@ function showError(message) {
 
 async function api(method, path, body) {
   const options = { method, headers: {} };
-  if (body instanceof ArrayBuffer) {
-    options.body = body;
-    options.headers["Content-Type"] = "application/octet-stream";
-  } else if (body !== undefined) {
+  if (body !== undefined) {
     options.body = JSON.stringify(body);
     options.headers["Content-Type"] = "application/json";
   }
@@ -157,7 +154,7 @@ function renderOverview() {
   const el = $("#overview");
   if (!s.last_month) {
     el.innerHTML =
-      '<div class="card"><p>Noch keine Daten. Unter <b>Daten</b> lässt sich die Excel-Historie importieren, unter <b>Monate</b> der erste Monat erfassen.</p></div>';
+      '<div class="card"><p>Noch keine Daten. Unter <b>Monate</b> erfasst du den ersten Monat, unter <b>Tarife</b> und <b>Investitionen</b> den Rest.</p></div>';
     return;
   }
   const r = s.rolling12;
@@ -221,6 +218,10 @@ function renderCharts() {
   const yearTotals = [...new Set(real.map((m) => m.month.slice(0, 4)))]
     .map((yr) => `${yr}: ${num(real.filter((m) => m.month.startsWith(yr)).reduce((n, m) => n + m.grid_kwh + m.heat_kwh, 0))} kWh`)
     .join(" · ");
+  const shown = chartRange ? real.slice(-chartRange) : real;
+  const chargedSum = shown.reduce((n, m) => n + (m.battery_charged || 0), 0);
+  const dischargedSum = shown.reduce((n, m) => n + (m.battery_charged ? m.battery_discharged || 0 : 0), 0);
+  const batteryNote = chargedSum > 0 ? `Wirkungsgrad im Zeitraum ${pct(dischargedSum / chargedSum, 0)}.` : "";
   const defs = [
     ["amort", "Erlös gegen Investition", "Kumulierter Erlös, saisonal fortgeschrieben bis zum Break-even."],
     ["quota", "Autarkiegrad und Eigenverbrauchsquote", "Gleitend über 12 Monate, dünn der einzelne Monat."],
@@ -229,7 +230,7 @@ function renderCharts() {
     ["years", "Netzbezug im Jahresvergleich", "Bezogene kWh je Monat, die Jahre nacheinander. " + yearTotals + "."],
     ["balance", "Energiebilanz", "Eigenverbrauch und Einspeisung ergeben den PV-Ertrag."],
     ["revenue", "Monatserlös", "Ersparnis durch Eigenverbrauch plus Einspeisevergütung."],
-    ["battery", "Batteriedurchsatz", "Geladene und entladene kWh je Monat."],
+    ["battery", "Batteriedurchsatz", "Die ganze Säule ist die geladene Energie: entladen plus Verlust. " + batteryNote],
   ];
   const ranged = new Set(["quota", "cost", "price", "balance", "revenue", "battery"]);
   el.innerHTML =
@@ -345,14 +346,17 @@ function renderCharts() {
     ],
   });
 
-  // 7 battery throughput: its own chart, kWh and euro never share an axis
+  // 7 battery throughput: what came back plus the loss adds up to what went in
+  const loss = win.map((m) => (m.battery_charged == null || m.battery_discharged == null ? null : Math.max(m.battery_charged - m.battery_discharged, 0)));
   Charts.draw($("#chart-battery"), {
     title: "Batteriedurchsatz",
     labels, ticks,
     format: kwh,
     series: [
-      { name: "geladen", type: "bar", color: "var(--c-neutral)", values: col("battery_charged") },
-      { name: "entladen", type: "bar", color: "var(--c-gain)", values: col("battery_discharged") },
+      { name: "entladen", type: "bar", stack: "bat", color: "var(--c-gain)", values: col("battery_discharged") },
+      { name: "Verlust", type: "bar", stack: "bat", color: "var(--c-cost-soft)", values: loss },
+      { name: "geladen", type: "info", values: col("battery_charged") },
+      { name: "Wirkungsgrad", type: "info", format: (v) => pct(v, 0), values: col("battery_efficiency") },
     ],
   });
 }
@@ -499,9 +503,9 @@ function renderTariffs() {
     <div class="card"><form id="mode-form">
       <label>Bewertung<select name="tariff_mode">
         <option value="daily" ${mode === "daily" ? "selected" : ""}>tagesgenau nach Vertragsbeginn</option>
-        <option value="monthly" ${mode === "monthly" ? "selected" : ""}>monatsweise wie in der Excel</option>
+        <option value="monthly" ${mode === "monthly" ? "selected" : ""}>monatsweise ab dem Abrechnungsmonat</option>
       </select></label>
-    </form><p class="muted">Tagesgenau gewichtet den Monat des Wechsels nach den Tagen je Tarif. Monatsweise liefert exakt die Zahlen der Excel.</p></div>
+    </form><p class="muted">Tagesgenau gewichtet den Monat des Wechsels nach den Tagen je Tarif. Monatsweise gilt der neue Preis für den ganzen Abrechnungsmonat.</p></div>
     <h2>Tarifvergleich</h2>
     <div class="card"><form id="compare-form">
       <label>Arbeitspreis €/kWh<input name="energy_price" type="number" step="any" inputmode="decimal" required></label>
@@ -613,33 +617,6 @@ function renderInvestments() {
   );
 }
 
-function renderData() {
-  const el = $("#data");
-  const has = state.months.length > 0;
-  el.innerHTML = `
-    <h2>Excel-Historie importieren</h2>
-    <div class="card">
-      <p>Liest Monatswerte, Investitionen und Tarife aus der bisherigen Arbeitsmappe. Übernommen werden nur die eingetragenen Werte, alles Berechnete wird neu gerechnet.</p>
-      ${has ? `<p class="neg">Es sind bereits ${state.months.length} Monate vorhanden. Ein Import ersetzt alle Monate, Tarife und Investitionen.</p>` : ""}
-      <form id="import-form">
-        <label>Arbeitsmappe (.xlsx)<input name="file" type="file" accept=".xlsx" required></label>
-        <div class="actions"><button class="primary" type="submit">${has ? "Alles ersetzen und importieren" : "Importieren"}</button></div>
-      </form>
-      <div id="import-result"></div>
-    </div>`;
-  $("#import-form").addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    run(async () => {
-      const file = ev.target.elements.file.files[0];
-      if (has && !confirm("Alle vorhandenen Monate, Tarife und Investitionen ersetzen?")) return;
-      const result = await api("POST", has ? "api/import?replace=1" : "api/import", await file.arrayBuffer());
-      state = result.state;
-      render();
-      $("#import-result").innerHTML = `<p>Importiert: ${result.imported.months} Monate, ${result.imported.investments} Investitionsposten, ${result.imported.tariffs} Tarifzeilen.</p>`;
-    });
-  });
-}
-
 function chartsVisible() {
   return !$("#charts").hidden;
 }
@@ -650,7 +627,6 @@ function render() {
   renderMonths();
   renderTariffs();
   renderInvestments();
-  renderData();
 }
 
 document.querySelectorAll("#tabs button").forEach((btn) =>

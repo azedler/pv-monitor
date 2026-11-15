@@ -1,8 +1,7 @@
 """Pure calculation core.
 
 Everything in here is derived, never stored: it can be recomputed at any time
-from readings, monthly values, tariffs and investments. The formulas follow the
-workbook this application replaces (sheet ``Verbrauch_Ertrag``).
+from readings, monthly values, tariffs and investments.
 
 Months are ``"YYYY-MM"`` strings, dates are ``"YYYY-MM-DD"`` strings.
 """
@@ -50,8 +49,7 @@ def _latest(tariffs, kind, field, day, start_key):
 def tariff_value(tariffs, kind: str, field: str, month: str, mode: str):
     """Value of ``field`` (energy_price or base_price_year) valid in ``month``.
 
-    monthly: the latest tariff whose billing month has begun, as the workbook
-    does. daily: weighted by the days each tariff was really in force, using
+    monthly: the latest tariff whose billing month has begun. daily: weighted by the days each tariff was really in force, using
     ``starts_on`` where the real contract date is known.
     """
     if mode != MODE_DAILY:
@@ -267,7 +265,7 @@ def tariff_break_even_kwh(price_a, base_a, price_b, base_b):
 
 
 def check_month(derived, month: str):
-    """Plausibility rules from the workbook's input sheet for one month."""
+    """Plausibility rules for one month's entry."""
     by_month = {d["month"]: d for d in derived}
     d = by_month.get(month)
     if d is None:

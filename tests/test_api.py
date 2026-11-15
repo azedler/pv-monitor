@@ -1,4 +1,4 @@
-"""HTTP API end to end against a temporary database and a synthetic workbook.
+"""HTTP API end to end against a temporary database with invented history.
 
 Run: python3 tests/test_api.py
 """
@@ -18,12 +18,11 @@ os.environ["PVMON_TODAY"] = "2025-12-10"
 
 from starlette.testclient import TestClient  # noqa: E402
 
+from pvmonitor import db  # noqa: E402
 from pvmonitor.server import app  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "tests"))
-import workbook_fixture as fx  # noqa: E402
-
-WORKBOOK = fx.build()
+import sample_data as fx  # noqa: E402
 
 
 N = fx.MONTH_COUNT
@@ -39,17 +38,9 @@ def main():
     for script in ("app.js", "charts.js", "plant.js", "style.css"):
         assert script in c.get("/").text and c.get(f"/{script}").status_code == 200, script
 
-    assert c.post("/api/import", content=b"not a workbook").status_code == 400
-    assert c.post("/api/import", content=b"").status_code == 400
-    r = c.post("/api/import", content=WORKBOOK)
-    assert r.status_code == 200, r.text
-    assert r.json()["imported"] == {
-        "months": fx.MONTH_COUNT,
-        "tariffs": len(fx.GRID_TARIFFS) + 2,
-        "investments": len(fx.INVESTMENTS),
-    }, r.json()["imported"]
-    assert c.post("/api/import", content=WORKBOOK).status_code == 409
-    assert c.post("/api/import?replace=1", content=WORKBOOK).status_code == 200
+    con = db.connect(os.environ["PVMON_DB"])
+    fx.fill(con)
+    con.close()
 
     state = c.get("/api/state").json()
     assert state["settings"]["tariff_mode"] == "daily"

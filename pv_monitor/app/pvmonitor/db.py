@@ -195,8 +195,3 @@ def save_month(con, month, data, source="manual"):
 def delete_month(con, month):
     con.execute("DELETE FROM readings WHERE month = ?", (month,))
     con.execute("DELETE FROM monthly_values WHERE month = ?", (month,))
-
-
-def clear_history(con):
-    for table in ("readings", "monthly_values", "meters", "tariffs", "investments"):
-        con.execute(f"DELETE FROM {table}")

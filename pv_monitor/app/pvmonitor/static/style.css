@@ -142,3 +142,4 @@ textarea { width: 100%; font: 12px/1.4 ui-monospace, monospace; color: var(--tex
 .colorkey span { display: flex; align-items: center; gap: 6px; }
 .colorkey i { width: 12px; height: 12px; border-radius: 3px; background: var(--c); }
 .verdict { margin: 0; font-size: 1.02rem; }
+.tip i.info { background: none; }

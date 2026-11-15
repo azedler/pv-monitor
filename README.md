@@ -4,8 +4,7 @@ Home Assistant add-on for a private PV system. The start page draws the roof
 with its strings, grid, battery and consumers, live or for a day, month or
 year, from sensors picked in a setup page. The economics part covers investments,
 tariff history with energy and base price, monthly values, amortisation and
-effective price per drawn kWh. It replaces an Excel workbook and reproduces its
-figures.
+effective price per drawn kWh, plus a forecast of the running billing period.
 
 ## Install
 
@@ -13,8 +12,6 @@ In Home Assistant: Settings → Add-ons → Add-on Store → ⋮ → Repositorie
 `https://github.com/azedler/pv-monitor`, then install **PV Monitor** and open it
 from the sidebar. The data lives in the add-on's `/data` folder and is part of
 its backup.
-
-The history is imported once under **Daten** from the workbook.
 
 ## Develop
 
@@ -28,7 +25,6 @@ cd pv_monitor/app && PVMON_DB=/tmp/pv.sqlite python -m uvicorn pvmonitor.server:
 Tests are standalone scripts:
 
 ```
-python tests/test_calc_against_workbook.py   # needs the private workbook, see its docstring
 python tests/test_calc_rules.py
 python tests/test_api.py
 python tests/test_plant.py

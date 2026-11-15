@@ -16,11 +16,10 @@ from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import calc, db, excel_import, ha, plant
+from . import calc, db, ha, plant
 
 STATIC = Path(__file__).parent / "static"
 INGRESS_PROXY = "172.30.32.2"
-MAX_IMPORT_BYTES = 20 * 1024 * 1024
 MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 DATE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
 MODES = (calc.MODE_MONTHLY, calc.MODE_DAILY)
@@ -276,24 +275,6 @@ def compare_tariff(con, request, body):
     return result
 
 
-async def import_excel(request):
-    content = await request.body()
-    if not content:
-        return _json_error("keine Datei übertragen")
-    if len(content) > MAX_IMPORT_BYTES:
-        return _json_error("die Datei ist zu groß", 413)
-    with closing(db.connect(db_path())) as con:
-        has_data = con.execute("SELECT COUNT(*) AS n FROM monthly_values").fetchone()["n"]
-        if has_data and request.query_params.get("replace") != "1":
-            return _json_error("es sind bereits Daten vorhanden", 409)
-        try:
-            counts = excel_import.import_workbook(con, content)
-        except excel_import.ImportError_ as exc:
-            con.rollback()
-            return _json_error(str(exc))
-        return JSONResponse({"imported": counts, "state": build_state(con)})
-
-
 def load_layout(con):
     raw = db.get_setting(con, "plant_layout")
     if not raw:
@@ -400,7 +381,6 @@ routes = [
     Route("/api/months/{month}", endpoint(delete_month), methods=["DELETE"]),
     Route("/api/months/{month}/check", endpoint(check_month), methods=["POST"]),
     Route("/api/settings", endpoint(save_settings), methods=["PUT"]),
-    Route("/api/import", import_excel, methods=["POST"]),
     Mount("/", StaticFiles(directory=STATIC, html=True)),
 ]
 

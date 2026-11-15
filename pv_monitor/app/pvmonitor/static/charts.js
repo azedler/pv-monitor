@@ -19,6 +19,7 @@ const Charts = (() => {
     let hi = 0;
     const stacks = {};
     for (const s of series) {
+      if (s.type === "info") continue; // not drawn, so it does not stretch the axis
       s.values.forEach((v, i) => {
         if (v == null) return;
         if (s.type === "bar" && s.stack) {
@@ -37,7 +38,7 @@ const Charts = (() => {
 
   /**
    * options: { labels: [..], ticks: (label, index) => text|null, series: [{name,
-   * color, type: "bar"|"line", stack, dashed, faint, values}], format: v => text,
+   * color, type: "bar"|"line"|"info" (tooltip and table only), stack, dashed, faint, values}], format: v => text,
    * unit, height }
    */
   function draw(el, options) {
@@ -113,16 +114,17 @@ const Charts = (() => {
     svg += `<rect class="hit" x="${m.l}" y="${m.t}" width="${pw}" height="${ph}" fill="transparent"/>`;
 
     const named = series.filter((s) => !s.hidden);
+    const drawn = named.filter((s) => s.type !== "info");
     const legend =
-      named.length > 1
-        ? `<div class="legend">${named
+      drawn.length > 1
+        ? `<div class="legend">${drawn
             .map((s) => `<span><i class="${s.type}${s.dashed ? " dashed" : ""}${s.faint ? " faint" : ""}" style="--c:${s.color}"></i>${escC(s.name)}</span>`)
             .join("")}</div>`
         : "";
     const table = `<details><summary>Tabelle</summary><div class="scroll"><table><thead><tr><th>${escC(options.labelHead || "Monat")}</th>${named
       .map((s) => `<th>${escC(s.name)}</th>`)
       .join("")}</tr></thead><tbody>${labels
-      .map((label, i) => `<tr><td>${escC(label)}</td>${named.map((s) => `<td>${s.values[i] == null ? "–" : escC(format(s.values[i]))}</td>`).join("")}</tr>`)
+      .map((label, i) => `<tr><td>${escC(label)}</td>${named.map((s) => `<td>${s.values[i] == null ? "–" : escC((s.format || format)(s.values[i]))}</td>`).join("")}</tr>`)
       .reverse()
       .join("")}</tbody></table></div></details>`;
 
@@ -138,7 +140,7 @@ const Charts = (() => {
       const i = Math.max(0, Math.min(n - 1, Math.floor((px - m.l) / band)));
       const rows = named
         .filter((s) => s.values[i] != null)
-        .map((s) => `<div><i class="${s.type}" style="--c:${s.color}"></i>${escC(s.name)}<b>${escC(format(s.values[i]))}</b></div>`)
+        .map((s) => `<div><i class="${s.type}" style="--c:${s.color}"></i>${escC(s.name)}<b>${escC((s.format || format)(s.values[i]))}</b></div>`)
         .join("");
       if (!rows) return hide();
       cross.setAttribute("x1", cx(i));

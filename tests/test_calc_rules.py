@@ -1,5 +1,5 @@
-"""Rules that go beyond the workbook: daily tariff weighting, dated
-investments, plausibility checks, projection.
+"""The calculation core: monthly figures, daily tariff weighting, dated
+investments, plausibility checks, projection and billing forecast.
 
 Run: python3 tests/test_calc_rules.py
 """
@@ -10,15 +10,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "pv_monitor" / "app"))
 
-from pvmonitor import calc, db, excel_import  # noqa: E402
+from pvmonitor import calc, db  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "tests"))
-import workbook_fixture as fx  # noqa: E402
+import sample_data as fx  # noqa: E402
 
 
 def load():
     con = db.connect(":memory:")
-    excel_import.import_workbook(con, fx.build())
+    fx.fill(con)
     return (
         db.month_rows(con),
         db.rows(con, "SELECT * FROM tariffs"),
@@ -28,6 +28,29 @@ def load():
 
 def near(a, b, tol=1e-9):
     return abs(a - b) <= tol
+
+
+def test_monthly_figures():
+    """One month by hand: readings become draw, yield becomes revenue."""
+    months, tariffs, investments = load()
+    derived = {d["month"]: d for d in calc.derive_months(months, tariffs, investments, "monthly")}
+    assert derived["2023-10"]["baseline"] and derived["2023-10"]["revenue"] == 0
+    d = derived["2025-06"]  # 2600 kWh yield, 1560 fed in, 300 drawn, tariff 0.25 + 300/year
+    assert (d["grid_kwh"], d["feed_kwh"], d["heat_kwh"], d["self_use"]) == (300, 1560, 0, 1040)
+    assert d["total_consumption"] == 1340 and near(d["autarky"], 1040 / 1340)
+    assert near(d["own_consumption_quota"], 0.4) and near(d["battery_efficiency"], 0.86)
+    assert near(d["saving"], 260.0) and near(d["feed_revenue"], 124.8) and near(d["revenue"], 384.8)
+    # the base price is part of the cost and the effective price, not of the saving
+    assert near(d["cost_energy"], 75.0) and near(d["base_month"], 25.0) and near(d["cost_total"], 100.0)
+    assert near(d["effective_price"], 100.0 / 300)
+    # while the heat meter existed its draw counts as consumption and cost
+    h = derived["2024-03"]
+    assert h["heat_kwh"] == 100 and near(h["cost_energy"], 300 * 0.28 + 100 * 0.22)
+    assert h["battery_efficiency"] is None
+    total = sum(x["revenue"] for x in derived.values())
+    assert near(derived["2025-11"]["revenue_cum"], total, 1e-6)
+    summary = calc.summarize(list(derived.values()), investments)
+    assert near(summary["amortisation"], total / fx.INVEST_TOTAL)
 
 
 def test_daily_weighting():
