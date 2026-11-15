@@ -151,7 +151,7 @@ function renderCharts() {
     ["quota", "Autarkiegrad und Eigenverbrauchsquote", "Gleitend über 12 Monate, dünn der einzelne Monat."],
     ["cost", "Stromkosten", "Was der Netzbezug im Monat gekostet hat: Arbeitspreis mal kWh, dazu der anteilige Grundpreis."],
     ["price", "Effektivpreis je bezogener kWh", "Kosten inklusive Grundpreis geteilt durch den Netzbezug, über 12 Monate. Ein einzelner Sommermonat sagt hier nichts, weil der Grundpreis auf wenige kWh fällt."],
-    ["years", "Netzbezug im Jahresvergleich", "Bezogene kWh je Kalendermonat."],
+    ["years", "Netzbezug im Jahresvergleich", "Bezogene kWh je Monat, die Jahre nacheinander und je Jahr in eigener Farbe."],
     ["balance", "Energiebilanz", "Eigenverbrauch und Einspeisung ergeben den PV-Ertrag."],
     ["revenue", "Monatserlös", "Ersparnis durch Eigenverbrauch plus Einspeisevergütung."],
     ["battery", "Batteriedurchsatz", "Geladene und entladene kWh je Monat."],
@@ -235,21 +235,22 @@ function renderCharts() {
     ],
   });
 
-  // 4 grid draw per calendar month, one line per year
+  // 4 grid draw per month, the years one after another on a continuous axis
   const years = [...new Set(real.map((m) => m.month.slice(0, 4)))];
   Charts.draw($("#chart-years"), {
     title: "Netzbezug im Jahresvergleich",
-    labels: MONTH_NAMES,
-    labelHead: "Monat",
+    labels: real.map((m) => monthLabel(m.month)),
+    ticks: (label) => {
+      const [mon, yr] = label.split("/");
+      return mon === "1" ? yr : mon === "7" ? "Jul" : null;
+    },
     format: kwh,
-    series: years.slice(-4).map((yr) => ({
-      name: yr,
-      type: "line",
-      color: `var(--s${(years.indexOf(yr) % 4) + 1})`, // the colour follows the year
-      values: MONTH_NAMES.map((_, i) => {
-        const m = real.find((x) => x.month === `${yr}-${String(i + 1).padStart(2, "0")}`);
-        return m ? m.grid_kwh + m.heat_kwh : null;
-      }),
+    series: years.map((yr, i) => ({
+      name: `${yr}: ${num(real.filter((m) => m.month.startsWith(yr)).reduce((n, m) => n + m.grid_kwh + m.heat_kwh, 0))} kWh`,
+      type: "bar",
+      stack: "year", // one bar per month, the colour follows the year
+      color: `var(--s${(i % 4) + 1})`,
+      values: real.map((m) => (m.month.startsWith(yr) ? m.grid_kwh + m.heat_kwh : null)),
     })),
   });
 
