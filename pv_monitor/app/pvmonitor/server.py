@@ -94,12 +94,26 @@ def clean_investment(data):
     }
 
 
-def clean_tariff(data):
+def _plant_kwp(con):
+    try:
+        return float(db.get_setting(con, "plant_kwp") or 0) or None
+    except ValueError:
+        return None
+
+
+def clean_tariff(data, plant_kwp=None):
     kind = data.get("kind") or calc.GRID
     if kind not in (calc.GRID, calc.HEAT, calc.FEED_IN):
         raise Invalid("unbekannte Tarifart")
     valid_from = _date(data, "valid_from", required=True)
-    price = _number(data, "energy_price", required=True)
+    rates = [_number(data, "rate_to_10"), _number(data, "rate_10_40")]
+    staged = kind == calc.FEED_IN and None not in rates
+    if rates != [None, None] and not staged:
+        raise Invalid("die Staffelsätze gehören zur Einspeisung und brauchen beide Werte")
+    # with both stage rates the price is computed from the plant's power
+    price = _number(data, "energy_price", required=not staged)
+    if staged:
+        price = calc.feed_in_mix(rates[0], rates[1], plant_kwp)
     if price < 0:
         raise Invalid("der Arbeitspreis darf nicht negativ sein")
     return {
@@ -113,6 +127,8 @@ def clean_tariff(data):
         "contract_end": _date(data, "contract_end"),
         "price_guarantee_until": _date(data, "price_guarantee_until"),
         "monthly_payment": _number(data, "monthly_payment"),
+        "rate_to_10": rates[0],
+        "rate_10_40": rates[1],
     }
 
 
@@ -140,11 +156,17 @@ def build_state(con, candidate=None):
     tariffs = db.rows(con, "SELECT * FROM tariffs ORDER BY kind, valid_from")
     investments = db.rows(con, "SELECT * FROM investments ORDER BY date IS NULL, date, id")
     mode = db.get_setting(con, "tariff_mode", DEFAULT_MODE)
+    kwp = _plant_kwp(con)
+    for t in tariffs:
+        # a staged feed-in rate is a formula: it follows the plant's power
+        t["computed"] = t["kind"] == calc.FEED_IN and t["rate_to_10"] is not None and t["rate_10_40"] is not None
+        if t["computed"]:
+            t["energy_price"] = calc.feed_in_mix(t["rate_to_10"], t["rate_10_40"], kwp)
     derived = calc.derive_months(months, tariffs, investments, mode)
     summary = calc.summarize(derived, investments)
     last = derived[-1]["month"] if derived else None
     return {
-        "settings": {"tariff_mode": mode},
+        "settings": {"tariff_mode": mode, "plant_kwp": kwp},
         "investments": investments,
         "tariffs": tariffs,
         "meters": db.rows(con, "SELECT * FROM meters ORDER BY id"),
@@ -201,11 +223,11 @@ def update_investment(con, request, body):
 
 
 def create_tariff(con, request, body):
-    db.insert(con, "tariffs", db.TARIFF_FIELDS, clean_tariff(body))
+    db.insert(con, "tariffs", db.TARIFF_FIELDS, clean_tariff(body, _plant_kwp(con)))
 
 
 def update_tariff(con, request, body):
-    if not db.update(con, "tariffs", db.TARIFF_FIELDS, request.path_params["id"], clean_tariff(body)):
+    if not db.update(con, "tariffs", db.TARIFF_FIELDS, request.path_params["id"], clean_tariff(body, _plant_kwp(con))):
         raise LookupError
 
 
@@ -244,10 +266,17 @@ def delete_month(con, request, body):
 
 
 def save_settings(con, request, body):
-    mode = body.get("tariff_mode")
-    if mode not in MODES:
-        raise Invalid("unbekannter Tarifmodus")
-    db.set_setting(con, "tariff_mode", mode)
+    if "tariff_mode" in body:
+        if body["tariff_mode"] not in MODES:
+            raise Invalid("unbekannter Tarifmodus")
+        db.set_setting(con, "tariff_mode", body["tariff_mode"])
+    if "plant_kwp" in body:
+        kwp = _number(body, "plant_kwp")
+        if kwp is not None and not 0 < kwp <= 1000:
+            raise Invalid("die Anlagenleistung muss zwischen 0 und 1000 kWp liegen")
+        db.set_setting(con, "plant_kwp", "" if kwp is None else repr(kwp))
+    if "tariff_mode" not in body and "plant_kwp" not in body:
+        raise Invalid("keine Einstellung übergeben")
 
 
 def compare_tariff(con, request, body):
@@ -259,11 +288,10 @@ def compare_tariff(con, request, body):
     upcoming = (state["forecast"] or {}).get("next")
     if upcoming:
         # the same expected draw, priced with the tariff that is being considered
-        cost = upcoming["kwh"] * price + base
+        cost = upcoming["year_kwh"] * price + base  # a full year from the switch
         result["next_period"] = {
             "start": upcoming["start"],
-            "end": upcoming["end"],
-            "kwh": upcoming["kwh"],
+            "kwh": upcoming["year_kwh"],
             "cost": cost,
             "recommended_payment": cost / 12,
         }

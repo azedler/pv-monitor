@@ -115,10 +115,28 @@ def main():
     assert abs(state["forecast"]["current"]["balance"] - (1680 - state["forecast"]["current"]["cost"])) < 1e-6
     assert c.put(f"/api/tariffs/{running['id']}", json=dict(running, monthly_payment="x")).status_code == 400
 
+    # staged feed-in rate: the price is a formula of the plant's power
+    assert c.put("/api/settings", json={"plant_kwp": 24.96}).json()["settings"]["plant_kwp"] == 24.96
+    feed = next(t for t in c.get("/api/state").json()["tariffs"] if t["kind"] == "feed_in")
+    before_total = c.get("/api/state").json()["summary"]["revenue_total"]
+    state = c.put(f"/api/tariffs/{feed['id']}", json=dict(feed, energy_price=None, rate_to_10=0.0803, rate_10_40=0.0695)).json()
+    staged = next(t for t in state["tariffs"] if t["id"] == feed["id"])
+    assert staged["computed"] and round(staged["energy_price"], 5) == 0.07383
+    assert state["summary"]["revenue_total"] < before_total  # 7.38 ct instead of the 8 ct before
+    state = c.put("/api/settings", json={"plant_kwp": 9.9}).json()  # the formula follows the power
+    assert next(t for t in state["tariffs"] if t["id"] == feed["id"])["energy_price"] == 0.0803
+    assert state["settings"]["tariff_mode"] == "monthly"  # untouched by the other setting
+    assert c.put(f"/api/tariffs/{feed['id']}", json=dict(feed, rate_to_10=0.08)).status_code == 400  # one rate alone
+    grid_t = next(t for t in state["tariffs"] if t["kind"] == "grid")
+    assert c.put(f"/api/tariffs/{grid_t['id']}", json=dict(grid_t, rate_to_10=0.08, rate_10_40=0.07)).status_code == 400
+    assert c.put("/api/settings", json={}).status_code == 400 and c.put("/api/settings", json={"plant_kwp": -1}).status_code == 400
+    c.put(f"/api/tariffs/{feed['id']}", json=feed)
+    c.put("/api/settings", json={"plant_kwp": None})
+
     cmp_ = c.post("/api/tariffs/compare", json={"energy_price": 0.28, "base_price_year": 120}).json()
     assert round(cmp_["break_even_kwh"]) == 6000 and cmp_["months"] == 12, cmp_
     nxt = cmp_["next_period"]
-    assert nxt["start"] == "2026-02-24" and abs(nxt["cost"] - (nxt["kwh"] * 0.28 + 120)) < 1e-6
+    assert nxt["start"] == "2026-02-24" and "end" not in nxt and abs(nxt["cost"] - (nxt["kwh"] * 0.28 + 120)) < 1e-6
     assert abs(nxt["recommended_payment"] - nxt["cost"] / 12) < 1e-9
 
     total = state["summary"]["invest_total"]

@@ -453,12 +453,37 @@ def forecast_billing(derived, tariffs, today: str):
     )
     next_start = end + timedelta(days=1)
     next_tariff = later[0] if later else tariff
-    upcoming = _forecast_period(
-        real, next_start, _add_year(next_start) - timedelta(days=1),
-        next_tariff["energy_price"], next_tariff.get("base_price_year"),
+    year_end = _add_year(next_start) - timedelta(days=1)
+    # a tariff that is already entered may end before a year is over
+    if len(later) > 1:
+        next_end = date.fromisoformat(start_of(later[1])) - timedelta(days=1)
+    elif later and next_tariff.get("contract_end"):
+        next_end = date.fromisoformat(next_tariff["contract_end"])
+    else:
+        next_end = year_end
+    if next_end < next_start:
+        next_end = year_end
+    price, base = next_tariff["energy_price"], next_tariff.get("base_price_year")
+    upcoming = _forecast_period(real, next_start, next_end, price, base)
+    count = max(1, round(upcoming["months"]))
+    upcoming.update(
+        tariff=next_tariff,
+        tariff_known=bool(later),
+        payment_count=count,
+        recommended_payment=upcoming["cost"] / count,
+        # the yearly draw a provider asks for, whatever the contract's length
+        year_kwh=_forecast_period(real, next_start, year_end, price, base)["kwh"],
     )
-    upcoming.update(tariff=next_tariff, tariff_known=bool(later), recommended_payment=upcoming["cost"] / 12)
     return {"current": current, "next": upcoming}
+
+
+def feed_in_mix(rate_to_10: float, rate_10_40: float, kwp):
+    """Feed-in rate of a plant whose first 10 kWp earn one rate and the part up
+    to 40 kWp another, weighted by installed power."""
+    if not kwp or kwp <= 10:
+        return rate_to_10
+    kwp = min(kwp, 40.0)
+    return (10 * rate_to_10 + (kwp - 10) * rate_10_40) / kwp
 
 
 def today_month() -> str:

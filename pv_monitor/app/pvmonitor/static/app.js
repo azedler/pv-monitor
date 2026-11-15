@@ -124,12 +124,12 @@ function forecastHtml() {
       ${payTiles}
     </div>
     <div class="card chart" id="chart-forecast"></div>
-    <h2>Nächster Zeitraum ab ${dateLabel(n.start)}</h2>
-    <p class="muted chart-note">Erwarteter Netzbezug aus den letzten zwölf Monaten. Für ein konkretes Angebot rechnet der Tarifvergleich unter <b>Tarife</b> den Abschlag aus.</p>
+    <h2>Nächster Zeitraum: ${dateLabel(n.start)} bis ${dateLabel(n.end)}</h2>
+    <p class="muted chart-note">${n.tariff_known ? esc(n.tariff.provider || "Folgetarif") + ", bereits eingetragen. " : ""}Erwarteter Netzbezug aus den letzten zwölf Monaten. Für ein anderes Angebot rechnet der Tarifvergleich unter <b>Tarife</b> den Abschlag aus.</p>
     <div class="tiles">
-      ${tile("Erwarteter Netzbezug", num(n.kwh) + " kWh", span(n), "cost")}
-      ${tile("Angabe für den Anbieter", num(Math.ceil(n.kwh / 100) * 100) + " kWh", "Jahresverbrauch, aufgerundet")}
-      ${tile("Abschlag", eur(n.recommended_payment, 0), (n.tariff_known ? "beim eingetragenen Folgetarif: " : "bei heutigem Preis: ") + priced)}
+      ${tile("Erwarteter Netzbezug", num(n.kwh) + " kWh", n.payment_count === 12 ? span(n) : `in ${n.payment_count} Monaten, ${eur(n.cost, 0)}`, "cost")}
+      ${tile("Jahresverbrauch", num(Math.ceil(n.year_kwh / 100) * 100) + " kWh", "Angabe für einen Anbieter, aufgerundet")}
+      ${tile("Passender Abschlag", eur(n.recommended_payment, 0), `${n.payment_count} Abschläge, ` + (n.tariff_known ? "" : "bei heutigem Preis: ") + priced)}
     </div>`;
 }
 
@@ -513,7 +513,7 @@ function renderTariffs() {
         .map(
           (x) => `<tr><td>${monthLabel(x.valid_from.slice(0, 7))}</td><td>${KINDS[x.kind]}</td><td>${dateLabel(x.starts_on)}</td>
           <td>${nf(4).format(x.energy_price)}</td><td>${num(x.base_price_year, 2)}</td><td>${num(x.monthly_payment, 2)}</td>
-          <td class="text">${esc(x.provider || x.note || "")}</td>
+          <td class="text">${esc(x.provider || x.note || "")}${x.computed ? ` <span class="muted">Mischsatz aus ${nf(4).format(x.rate_to_10)} bis 10 kWp und ${nf(4).format(x.rate_10_40)} darüber</span>` : ""}</td>
           <td><button class="link" data-edit-tariff="${x.id}">ändern</button><button class="link danger" data-del-tariff="${x.id}">löschen</button></td></tr>`
         )
         .join("")}</tbody>
@@ -525,15 +525,21 @@ function renderTariffs() {
         .join("")}</select></label>
       <label>gilt ab Abrechnungsmonat<input name="valid_from" type="month" required placeholder="JJJJ-MM" pattern="\\d{4}-\\d{2}" value="${esc((t.valid_from || "").slice(0, 7))}"></label>
       <label>Vertragsbeginn (tagesgenau)<input name="starts_on" type="date" value="${esc(t.starts_on || "")}"></label>
-      <label>Arbeitspreis brutto €/kWh<input name="energy_price" type="number" step="any" inputmode="decimal" required value="${t.energy_price ?? ""}"></label>
+      <label>Arbeitspreis brutto €/kWh<input name="energy_price" type="number" step="any" inputmode="decimal" value="${t.computed ? "" : t.energy_price ?? ""}"></label>
       <label>Grundpreis brutto €/Jahr<input name="base_price_year" type="number" step="any" inputmode="decimal" value="${t.base_price_year ?? ""}"></label>
       <label>Abschlag €/Monat<input name="monthly_payment" type="number" step="any" inputmode="decimal" value="${t.monthly_payment ?? ""}"></label>
+      <label>Einspeisung: Satz bis 10 kWp €/kWh<input name="rate_to_10" type="number" step="any" inputmode="decimal" value="${t.rate_to_10 ?? ""}"></label>
+      <label>Einspeisung: Satz 10–40 kWp €/kWh<input name="rate_10_40" type="number" step="any" inputmode="decimal" value="${t.rate_10_40 ?? ""}"></label>
       <label>Anbieter<input name="provider" value="${esc(t.provider || "")}"></label>
       <label>Notiz<input name="note" value="${esc(t.note || "")}"></label>
       <label>Vertragsende<input name="contract_end" type="date" value="${esc(t.contract_end || "")}"></label>
       <label>Preisgarantie bis<input name="price_guarantee_until" type="date" value="${esc(t.price_guarantee_until || "")}"></label>
       <div class="actions"><button class="primary" type="submit">Speichern</button>${t.id ? '<button class="secondary" type="button" id="tariff-cancel">Abbrechen</button>' : ""}</div>
     </form></div>
+    <h2>Gestaffelte Einspeisevergütung</h2>
+    <div class="card"><form id="kwp-form" onsubmit="return false">
+      <label>Anlagenleistung laut Marktstammdatenregister (kWp)<input name="plant_kwp" type="number" step="any" inputmode="decimal" value="${state.settings.plant_kwp ?? ""}"></label>
+    </form><p class="muted">Trägst du bei einem Einspeisetarif beide Staffelsätze ein, rechnet die App den Mischsatz aus dieser Leistung: die ersten 10 kWp zum ersten Satz, der Rest zum zweiten. Der Arbeitspreis bleibt dann leer.</p></div>
     <h2>Tarifwechsel mitten im Monat</h2>
     <div class="card"><form id="mode-form">
       <label>Bewertung<select name="tariff_mode">
@@ -575,6 +581,12 @@ function renderTariffs() {
         render();
       })
     )
+  );
+  $("#kwp-form").addEventListener("change", (ev) =>
+    run(async () => {
+      state = await api("PUT", "api/settings", { plant_kwp: ev.target.value === "" ? null : Number(ev.target.value) });
+      render();
+    })
   );
   $("#mode-form").addEventListener("change", (ev) =>
     run(async () => {

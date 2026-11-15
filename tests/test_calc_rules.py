@@ -192,6 +192,19 @@ def test_forecast_billing():
     assert (nxt["start"], nxt["end"]) == ("2026-02-24", "2027-02-23") and not nxt["tariff_known"]
     assert near(nxt["months"], 12.0) and all(not r["actual"] for r in nxt["rows"])
     assert near(nxt["recommended_payment"], (nxt["kwh"] * 0.25 + 300.0) / 12, 1e-6)
+    assert nxt["payment_count"] == 12 and near(nxt["year_kwh"], nxt["kwh"])
+
+    # a follow-up tariff that is already entered ends with its contract, not after a year
+    follow = {"id": 99, "kind": "grid", "valid_from": "2026-03-01", "starts_on": "2026-02-24", "energy_price": 0.32,
+              "base_price_year": 144.0, "contract_end": "2026-12-31"}
+    f2 = calc.forecast_billing(derived, tariffs + [follow], "2025-12-10")
+    assert f2["current"]["end"] == "2026-02-23"
+    n2 = f2["next"]
+    assert (n2["start"], n2["end"]) == ("2026-02-24", "2026-12-31") and n2["tariff_known"]
+    assert n2["payment_count"] == 10 and near(n2["months"], 5 / 28 + 10)
+    assert near(n2["cost"], n2["kwh"] * 0.32 + 144.0 * n2["months"] / 12, 1e-6)
+    assert near(n2["recommended_payment"], n2["cost"] / 10, 1e-9)
+    assert n2["kwh"] < n2["year_kwh"] and near(n2["year_kwh"], nxt["kwh"])  # the winter months after the end are missing
 
     # a contract end shortens the period; no payment set means no balance
     for t in tariffs:
@@ -202,6 +215,14 @@ def test_forecast_billing():
     # before the first tariff, or without data, there is nothing to say
     assert calc.forecast_billing(derived, tariffs, "2020-01-01") is None
     assert calc.forecast_billing([], tariffs, "2025-12-10") is None
+
+
+def test_feed_in_mix():
+    # 24.96 kWp: 10 at the first rate, 14.96 at the second
+    assert near(calc.feed_in_mix(0.0803, 0.0695, 24.96), (10 * 0.0803 + 14.96 * 0.0695) / 24.96)
+    assert round(calc.feed_in_mix(0.0803, 0.0695, 24.96), 5) == 0.07383
+    assert calc.feed_in_mix(0.0803, 0.0695, 8.0) == 0.0803 and calc.feed_in_mix(0.0803, 0.0695, None) == 0.0803
+    assert near(calc.feed_in_mix(0.08, 0.07, 55.0), (10 * 0.08 + 30 * 0.07) / 40)  # capped at 40 kWp
 
 
 def test_months():

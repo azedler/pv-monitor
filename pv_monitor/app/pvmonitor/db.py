@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS tariffs (
     note TEXT,
     contract_end TEXT,
     price_guarantee_until TEXT,
-    monthly_payment REAL
+    monthly_payment REAL,
+    rate_to_10 REAL,
+    rate_10_40 REAL
 );
 CREATE TABLE IF NOT EXISTS meters (
     id INTEGER PRIMARY KEY,
@@ -69,6 +71,8 @@ TARIFF_FIELDS = (
     "contract_end",
     "price_guarantee_until",
     "monthly_payment",
+    "rate_to_10",
+    "rate_10_40",
 )
 READING_KINDS = {"grid": "grid_reading", "feed_in": "feed_reading", "heat": "heat_reading"}
 DEFAULT_METERS = (("Hausstrom", "grid"), ("Einspeisung", "feed_in"))
@@ -84,7 +88,11 @@ def connect(path: str) -> sqlite3.Connection:
 
 
 # columns added after the first release: (table, column, type)
-ADDED_COLUMNS = (("tariffs", "monthly_payment", "REAL"),)
+ADDED_COLUMNS = (
+    ("tariffs", "monthly_payment", "REAL"),
+    ("tariffs", "rate_to_10", "REAL"),
+    ("tariffs", "rate_10_40", "REAL"),
+)
 
 
 def _migrate(con):
