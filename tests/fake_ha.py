@@ -37,6 +37,7 @@ STATES = {
     "sensor.wallbox_power": ("0", "W"),
     "sensor.outdoor_temperature": ("4.5", "°C"),
     "light.kitchen": ("on", None),
+    "sun.sun": ("above_horizon", None),
 }
 # kWh per full day for energy meters, peak W for power sensors
 DAILY_KWH = {

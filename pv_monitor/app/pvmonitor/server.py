@@ -326,7 +326,16 @@ async def plant_entities(request):
 async def plant_live(request):
     layout = _layout()
     values = await ha.states(plant.entities(layout, plant.LIVE))
-    return plant.compose(layout, values, plant.LIVE)
+    # An inverter asleep at night reports "unavailable". After sunset that is
+    # 0 W; by day a missing value stays missing, because then it is a fault.
+    night = any(values.get(s["power_entity"]) is None for s in layout["strings"] if s["power_entity"]) and await ha.sun_is_down()
+    if night:
+        for s in layout["strings"]:
+            if s["power_entity"] and values.get(s["power_entity"]) is None:
+                values[s["power_entity"]] = 0.0
+    result = plant.compose(layout, values, plant.LIVE)
+    result["night"] = night
+    return result
 
 
 async def plant_history(request):

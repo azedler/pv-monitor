@@ -101,6 +101,20 @@ def test_live(c):
     assert near(live["other"], 3960 - 1800)
 
 
+def test_night(c):
+    """A string that is unavailable counts as 0 W only while the sun is down."""
+    day = c.get("/api/plant/live").json()
+    assert day["night"] is False and {s["id"]: s for s in day["strings"]}["h2"]["value"] is None
+    fake_ha.STATES["sun.sun"] = ("below_horizon", None)
+    try:
+        night = c.get("/api/plant/live").json()
+        by = {s["id"]: s for s in night["strings"]}
+        assert night["night"] is True and by["h2"]["value"] == 0 and by["a"]["value"] == 3900
+        assert near(night["pv"], day["pv"])
+    finally:
+        fake_ha.STATES["sun.sun"] = ("above_horizon", None)
+
+
 def test_history(c):
     day = c.get("/api/plant/history?period=day&date=2026-06-15").json()
     asked = fake_ha.requests_seen[-1]
@@ -213,6 +227,6 @@ if __name__ == "__main__":
     client = TestClient(app)
     test_helpers()
     print("ok test_helpers")
-    for fn in (test_layout, test_entities, test_live, test_history, test_month_suggest, test_unreachable):
+    for fn in (test_layout, test_entities, test_live, test_night, test_history, test_month_suggest, test_unreachable):
         fn(client)
         print("ok", fn.__name__)

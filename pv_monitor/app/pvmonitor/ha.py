@@ -89,6 +89,14 @@ async def states(entity_ids):
     return out
 
 
+async def sun_is_down() -> bool:
+    """True when Home Assistant's sun is below the horizon; False if unknown."""
+    base, _, token = _require()
+    async with _session(token) as session:
+        state = await _get(session, base, "/states/sun.sun")
+    return bool(state) and state.get("state") == "below_horizon"
+
+
 async def entities():
     """Sensors that can be picked: power, energy and percentage."""
     base, _, token = _require()
