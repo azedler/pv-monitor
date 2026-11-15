@@ -11,6 +11,7 @@
   <h1>PV Monitor</h1>
   <nav id="tabs">
     <button data-tab="overview" class="active">Übersicht</button>
+    <button data-tab="charts">Auswertungen</button>
     <button data-tab="months">Monate</button>
     <button data-tab="tariffs">Tarife</button>
     <button data-tab="investments">Investitionen</button>
@@ -20,11 +21,13 @@
 <div id="error" role="alert" hidden></div>
 <main>
   <section id="overview"></section>
+  <section id="charts" hidden></section>
   <section id="months" hidden></section>
   <section id="tariffs" hidden></section>
   <section id="investments" hidden></section>
   <section id="data" hidden></section>
 </main>
+<script src="charts.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

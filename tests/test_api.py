@@ -35,7 +35,8 @@ def main():
     empty = c.get("/api/state").json()
     assert empty["months"] == [] and empty["summary"]["last_month"] is None
     assert c.get("/").status_code == 200 and "PV Monitor" in c.get("/").text
-    assert c.get("/app.js").status_code == 200
+    for script in ("app.js", "charts.js", "style.css"):
+        assert script in c.get("/").text and c.get(f"/{script}").status_code == 200, script
 
     assert c.post("/api/import", content=b"not a workbook").status_code == 400
     assert c.post("/api/import", content=b"").status_code == 400

@@ -5,6 +5,7 @@
 let state = null;
 let pendingMonth = null; // an entry that was checked but not saved yet
 let editing = { tariff: null, investment: null };
+let chartRange = 24; // months shown in the charts; 0 = all
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) =>
@@ -132,6 +133,139 @@ function renderOverview() {
     </div>
     <h2>Prüfung ${monthLabel(last.month)}</h2>
     <div class="card">${checksHtml(state.checks)}</div>`;
+}
+
+const MONTH_NAMES = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+const kwh = (v) => num(v) + " kWh";
+const yearTick = (label) => (label.startsWith("1/") ? label.slice(2) : null);
+
+function renderCharts() {
+  const el = $("#charts");
+  const real = state.months.filter((m) => !m.baseline);
+  if (!real.length) {
+    el.innerHTML = '<div class="card"><p>Noch keine Daten.</p></div>';
+    return;
+  }
+  const defs = [
+    ["amort", "Erlös gegen Investition", "Kumulierter Erlös, saisonal fortgeschrieben bis zum Break-even."],
+    ["quota", "Autarkiegrad und Eigenverbrauchsquote", "Gleitend über 12 Monate, dünn der einzelne Monat."],
+    ["price", "Effektivpreis je bezogener kWh", "Arbeitspreis plus anteiliger Grundpreis, geteilt durch den Netzbezug."],
+    ["years", "Netzbezug im Jahresvergleich", "Bezogene kWh je Kalendermonat."],
+    ["balance", "Energiebilanz", "Eigenverbrauch und Einspeisung ergeben den PV-Ertrag."],
+    ["revenue", "Monatserlös", "Ersparnis durch Eigenverbrauch plus Einspeisevergütung."],
+    ["battery", "Batteriedurchsatz", "Geladene und entladene kWh je Monat."],
+  ];
+  const ranged = new Set(["quota", "price", "balance", "revenue", "battery"]);
+  el.innerHTML =
+    `<div class="range" role="group" aria-label="Zeitraum">${[[12, "12 Monate"], [24, "24 Monate"], [0, "Alles"]]
+      .map(([v, t]) => `<button data-range="${v}" class="${chartRange === v ? "active" : ""}">${t}</button>`)
+      .join("")}</div>` +
+    defs
+      .map(([id, title, note]) => `<h2>${title}</h2><p class="muted chart-note">${note}${ranged.has(id) ? "" : " Immer der gesamte Zeitraum."}</p><div class="card chart" id="chart-${id}"></div>`)
+      .join("");
+  el.querySelectorAll("[data-range]").forEach((b) =>
+    b.addEventListener("click", () => {
+      chartRange = Number(b.dataset.range);
+      renderCharts();
+    })
+  );
+
+  const win = chartRange ? real.slice(-chartRange) : real;
+  const labels = win.map((m) => monthLabel(m.month));
+  const ticks = win.length > 14 ? yearTick : (label) => label.split("/")[0];
+  const col = (key) => win.map((m) => m[key]);
+
+  // 1 cumulated revenue against investment, with projection
+  const be = state.summary.break_even;
+  const future = be && !be.reached ? be.curve : [];
+  const total = state.summary.invest_total;
+  Charts.draw($("#chart-amort"), {
+    title: "Erlös gegen Investition",
+    labels: real.map((m) => monthLabel(m.month)).concat(future.map((f) => monthLabel(f.month))),
+    ticks: (label, i) => (label.startsWith("1/") && Number(label.slice(2)) % 2 === 0 ? label.slice(2) : null),
+    format: (v) => eur(v, 0),
+    series: [
+      { name: "Erlös kumuliert", type: "line", color: "var(--s1)", values: real.map((m) => m.revenue_cum).concat(future.map(() => null)) },
+      { name: "Fortschreibung", type: "line", dashed: true, color: "var(--s1)", values: real.map((m, i) => (i === real.length - 1 && future.length ? m.revenue_cum : null)).concat(future.map((f) => f.revenue_cum)) },
+      { name: "Investition", type: "line", color: "var(--s2)", values: real.map((m) => m.invested).concat(future.map(() => total)) },
+    ],
+  });
+
+  // 2 autarky and own-consumption quota
+  Charts.draw($("#chart-quota"), {
+    title: "Autarkiegrad und Eigenverbrauchsquote",
+    labels, ticks,
+    format: (v) => pct(v, 0),
+    series: [
+      { name: "Autarkie 12 Monate", type: "line", color: "var(--s1)", values: col("rolling12_autarky") },
+      { name: "Eigenverbrauch 12 Monate", type: "line", color: "var(--s2)", values: col("rolling12_quota") },
+      { name: "Autarkie Monat", type: "line", faint: true, color: "var(--s1)", values: col("autarky") },
+      { name: "Eigenverbrauch Monat", type: "line", faint: true, color: "var(--s2)", values: col("own_consumption_quota") },
+    ],
+  });
+
+  // 3 effective price
+  Charts.draw($("#chart-price"), {
+    title: "Effektivpreis je bezogener kWh",
+    labels, ticks,
+    format: (v, axis) => nf(axis ? 2 : 4).format(v) + " €",
+    series: [
+      { name: "Effektivpreis", type: "line", color: "var(--s1)", values: col("effective_price") },
+      { name: "Arbeitspreis", type: "line", color: "var(--s2)", values: col("price") },
+    ],
+  });
+
+  // 4 grid draw per calendar month, one line per year
+  const years = [...new Set(real.map((m) => m.month.slice(0, 4)))];
+  Charts.draw($("#chart-years"), {
+    title: "Netzbezug im Jahresvergleich",
+    labels: MONTH_NAMES,
+    labelHead: "Monat",
+    format: kwh,
+    series: years.slice(-4).map((yr) => ({
+      name: yr,
+      type: "line",
+      color: `var(--s${(years.indexOf(yr) % 4) + 1})`, // the colour follows the year
+      values: MONTH_NAMES.map((_, i) => {
+        const m = real.find((x) => x.month === `${yr}-${String(i + 1).padStart(2, "0")}`);
+        return m ? m.grid_kwh + m.heat_kwh : null;
+      }),
+    })),
+  });
+
+  // 5 energy balance
+  Charts.draw($("#chart-balance"), {
+    title: "Energiebilanz",
+    labels, ticks,
+    format: kwh,
+    series: [
+      { name: "Eigenverbrauch", type: "bar", stack: "pv", color: "var(--s1)", values: col("self_use") },
+      { name: "Einspeisung", type: "bar", stack: "pv", color: "var(--s2)", values: col("feed_kwh") },
+      { name: "Gesamtverbrauch", type: "line", color: "var(--s3)", values: col("total_consumption") },
+    ],
+  });
+
+  // 6 monthly revenue
+  Charts.draw($("#chart-revenue"), {
+    title: "Monatserlös",
+    labels, ticks,
+    format: (v) => eur(v, 0),
+    series: [
+      { name: "Ersparnis Eigenverbrauch", type: "bar", stack: "rev", color: "var(--s1)", values: col("saving") },
+      { name: "Einspeisevergütung", type: "bar", stack: "rev", color: "var(--s2)", values: col("feed_revenue") },
+    ],
+  });
+
+  // 7 battery throughput: its own chart, kWh and euro never share an axis
+  Charts.draw($("#chart-battery"), {
+    title: "Batteriedurchsatz",
+    labels, ticks,
+    format: kwh,
+    series: [
+      { name: "geladen", type: "bar", color: "var(--s1)", values: col("battery_charged") },
+      { name: "entladen", type: "bar", color: "var(--s2)", values: col("battery_discharged") },
+    ],
+  });
 }
 
 function renderMonths() {
@@ -413,8 +547,13 @@ function renderData() {
   });
 }
 
+function chartsVisible() {
+  return !$("#charts").hidden;
+}
+
 function render() {
   renderOverview();
+  if (chartsVisible()) renderCharts();
   renderMonths();
   renderTariffs();
   renderInvestments();
@@ -425,10 +564,18 @@ document.querySelectorAll("#tabs button").forEach((btn) =>
   btn.addEventListener("click", () => {
     document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b === btn));
     document.querySelectorAll("main > section").forEach((s) => (s.hidden = s.id !== btn.dataset.tab));
+    // charts measure their container, so they are drawn once it is visible
+    if (state && chartsVisible()) renderCharts();
   })
 );
 
 run(async () => {
   state = await api("GET", "api/state");
   render();
+});
+
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => state && chartsVisible() && renderCharts(), 150);
 });

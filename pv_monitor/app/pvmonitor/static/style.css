@@ -1,11 +1,13 @@
 :root {
   --bg: #f4f5f7; --card: #fff; --text: #1c1f24; --muted: #667080; --line: #dfe3e8;
   --accent: #0b6e4f; --warn: #b3261e; --warn-bg: #fdecea; --ok: #0b6e4f; --input: #fff8d6;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #14171a; --card: #1e2227; --text: #e8eaed; --muted: #9aa3ad; --line: #32383f;
     --accent: #5fd0a5; --warn: #ff8a80; --warn-bg: #3a1f1d; --ok: #5fd0a5; --input: #3a3520;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
   }
 }
 * { box-sizing: border-box; }
@@ -61,3 +63,28 @@ ul.checks li.na { color: var(--muted); }
 .confirm { font-size: 1.6rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); font-size: .85rem; }
 .neg { color: var(--warn); }
+.chart { padding: 12px 8px 8px; }
+.chart .plot { position: relative; touch-action: pan-y; }
+.chart svg { display: block; max-width: 100%; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .grid.zero { stroke: var(--muted); }
+.chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart .cross { stroke: var(--muted); stroke-width: 1; pointer-events: none; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 0 6px 8px; font-size: .8rem; color: var(--muted); }
+.legend span, .tip div { display: flex; align-items: center; gap: 6px; }
+.legend i, .tip i { width: 12px; height: 12px; border-radius: 3px; background: var(--c); flex: none; }
+.legend i.line, .tip i.line { height: 3px; border-radius: 2px; }
+.legend i.dashed { background: linear-gradient(90deg, var(--c) 40%, transparent 40% 60%, var(--c) 60%); }
+.legend i.faint { opacity: .45; height: 2px; }
+.tip {
+  position: absolute; z-index: 1; pointer-events: none; background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 9px; font-size: .8rem; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,.15);
+}
+.tip-head { font-weight: 600; margin-bottom: 2px; }
+.tip b { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; }
+.chart details { margin: 6px 6px 0; font-size: .85rem; color: var(--muted); }
+.chart details .scroll { max-height: 260px; overflow: auto; margin-top: 6px; }
+.range { display: flex; gap: 6px; margin: 14px 0 0; }
+.range button { border: 1px solid var(--line); background: var(--card); color: var(--text); font: inherit; border-radius: 999px; padding: 7px 14px; min-height: 40px; cursor: pointer; }
+.range button.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.chart-note { margin: 2px 0 8px; }
