@@ -381,6 +381,7 @@ function renderMonths() {
         <div class="actions"><button class="primary" type="submit">Prüfen</button></div>
       </form>
       <p class="muted">Zählerstand eintragen, nicht die Differenz. Gespeichert wird erst nach der Prüfung.</p>
+      <p class="muted" id="month-auto"></p>
       <div id="month-confirm"></div>
     </div>
     <h2>Monatswerte</h2>
@@ -407,6 +408,40 @@ function renderMonths() {
     </table></div>`;
 
   const form = $("#month-form");
+  // PV yield and battery values come from Home Assistant; they stay editable
+  // and a value typed by hand is never overwritten.
+  const AUTO = { pv_yield: "PV-Ertrag", battery_charged: "Batterie geladen", battery_discharged: "Batterie entladen" };
+  for (const key of Object.keys(AUTO)) form.elements[key].addEventListener("input", (ev) => delete ev.target.dataset.auto);
+  const suggest = async () => {
+    const month = form.elements.month.value;
+    const note = $("#month-auto");
+    if (!/^\d{4}-\d{2}$/.test(month)) return;
+    let res;
+    try {
+      res = await api("GET", `api/months/${month}/suggest`);
+    } catch (err) {
+      note.textContent = "";
+      return; // no Home Assistant: the fields are simply typed by hand
+    }
+    if (form.elements.month.value !== month || !note.isConnected) return;
+    const filled = [];
+    for (const [key, label] of Object.entries(AUTO)) {
+      const input = form.elements[key];
+      if (input.value !== "" && !input.dataset.auto) continue;
+      const value = res.values[key];
+      input.value = value == null ? "" : value;
+      if (value == null) delete input.dataset.auto;
+      else {
+        input.dataset.auto = "1";
+        filled.push(label);
+      }
+    }
+    note.textContent = filled.length
+      ? `${filled.join(", ")} für ${monthLabel(month)} aus Home Assistant übernommen.` + (res.complete ? "" : " Der Monat läuft noch, die Werte sind ein Zwischenstand.")
+      : "";
+  };
+  form.elements.month.addEventListener("change", suggest);
+  suggest();
   form.addEventListener("submit", (ev) => {
     ev.preventDefault();
     run(async () => {

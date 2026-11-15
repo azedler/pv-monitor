@@ -54,7 +54,7 @@ def near(a, b, tol=1e-6):
 
 def test_layout(c):
     empty = c.get("/api/plant/layout").json()
-    assert empty == {"layout": {"areas": [], "strings": [], "devices": []}, "ha": True}
+    assert empty == {"layout": {"areas": [], "strings": [], "devices": [], "yield_entity": None}, "ha": True}
     saved = c.put("/api/plant/layout", json=LAYOUT)
     assert saved.status_code == 200, saved.text
     layout = c.get("/api/plant/layout").json()["layout"]
@@ -138,6 +138,45 @@ def test_history(c):
     assert c.get("/api/plant/history?period=day&date=15.06.2026").status_code == 400
 
 
+def test_month_suggest(c):
+    """The monthly values the app fills in itself."""
+    # without a yield meter the strings are summed, but only if every one delivers:
+    # string h2 has no statistics, so there is no yield rather than one that is too small
+    r = c.get("/api/months/2026-06/suggest").json()
+    assert r["values"]["pv_yield"] is None and near(r["values"]["battery_charged"], 150.0, 0.2), r
+    without_h2 = dict(LAYOUT, strings=LAYOUT["strings"][:4], areas=LAYOUT["areas"][:2])
+    assert c.put("/api/plant/layout", json=without_h2).status_code == 200
+    # two meters and two power sensors
+    r = c.get("/api/months/2026-06/suggest").json()
+    asked = fake_ha.requests_seen[-1]
+    assert asked["period"] == "day" and asked["start_time"].startswith("2026-06-01T00:00:00")
+    assert asked["end_time"].startswith("2026-07-01T00:00:00")
+    assert r["complete"] is True
+    assert near(r["values"]["pv_yield"], 24 * 30 + 18 * 30 + 14.4 * 30 + 1.8 * 30, 0.2), r
+    assert near(r["values"]["battery_charged"], 150.0, 0.2) and near(r["values"]["battery_discharged"], 120.0, 0.2)
+
+    saved = c.put("/api/plant/layout", json=dict(LAYOUT, yield_entity="sensor.pv_total_energy"))
+    assert saved.status_code == 200 and saved.json()["layout"]["yield_entity"] == "sensor.pv_total_energy"
+    r = c.get("/api/months/2026-06/suggest").json()
+    assert fake_ha.requests_seen[-1]["statistic_ids"] == sorted(
+        ["sensor.pv_total_energy", "sensor.battery_charge_energy", "sensor.battery_discharge_energy"]
+    )
+    assert near(r["values"]["pv_yield"], 1800.0, 0.2), r
+
+    # a month that has not ended is marked; a source without data gives no value
+    assert c.get("/api/months/2099-01/suggest").json()["complete"] is False
+    c.put("/api/plant/layout", json=dict(LAYOUT, yield_entity="sensor.does_not_exist"))
+    r = c.get("/api/months/2026-06/suggest").json()
+    assert r["values"]["pv_yield"] is None and near(r["values"]["battery_charged"], 150.0, 0.2)
+    # a battery with only a signed power sensor has no meters to read
+    no_meters = dict(LAYOUT, devices=[dict(d, energy_entity=None, energy_entity_2=None) if d["kind"] == "battery" else d for d in LAYOUT["devices"]])
+    c.put("/api/plant/layout", json=no_meters)
+    r = c.get("/api/months/2026-06/suggest").json()
+    assert r["values"]["battery_charged"] is None and r["values"]["battery_discharged"] is None
+    assert c.get("/api/months/2026-6/suggest").status_code == 400
+    c.put("/api/plant/layout", json=LAYOUT)
+
+
 def test_helpers():
     assert plant.shift("day", "2026-03-01", -1) == "2026-02-28"
     assert plant.shift("month", "2026-01-31", -1) == "2025-12-01"
@@ -174,6 +213,6 @@ if __name__ == "__main__":
     client = TestClient(app)
     test_helpers()
     print("ok test_helpers")
-    for fn in (test_layout, test_entities, test_live, test_history, test_unreachable):
+    for fn in (test_layout, test_entities, test_live, test_history, test_month_suggest, test_unreachable):
         fn(client)
         print("ok", fn.__name__)

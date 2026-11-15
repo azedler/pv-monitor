@@ -342,6 +342,10 @@ const Plant = (() => {
     el.innerHTML = `
       <datalist id="ents">${options}</datalist>
       <p class="muted">${haOk ? (known ? `${known.length} Sensoren aus Home Assistant stehen zur Auswahl.` : "Lade Sensoren aus Home Assistant …") : "Keine Verbindung zu Home Assistant, Sensoren lassen sich nur von Hand eintragen."}</p>
+      <h2>Monatswerte</h2>
+      <div class="card"><form onsubmit="return false">
+        ${entityInput("yield_entity", draft.yield_entity, "Zähler PV-Ertrag gesamt")}
+      </form><p class="muted">Aus diesem Zähler und den Batteriezählern unten füllt „Monate“ PV-Ertrag und Batteriewerte selbst aus. Ohne Zähler wird die Summe der Strings genommen.</p></div>
       <h2>1. Strings</h2>${strings}
       <p><button class="secondary" data-act="add-string">String hinzufügen</button></p>
       <h2>2. Dachflächen</h2>${draft.strings.length ? "" : '<p class="muted">Lege zuerst die Strings an.</p>'}${areas}
@@ -417,7 +421,7 @@ const Plant = (() => {
     } else if (act === "import") {
       try {
         const doc = JSON.parse($("#layout-json").value);
-        draft = { areas: doc.areas || [], strings: doc.strings || [], devices: doc.devices || [] };
+        draft = { areas: doc.areas || [], strings: doc.strings || [], devices: doc.devices || [], yield_entity: doc.yield_entity || null };
         showError("");
       } catch (err) {
         return showError("Der Text ist kein gültiges JSON.");
@@ -453,7 +457,7 @@ const Plant = (() => {
       layout = res.layout;
       haOk = res.ha;
     } catch (err) {
-      layout = { areas: [], strings: [], devices: [] };
+      layout = { areas: [], strings: [], devices: [], yield_entity: null };
       showError(err.message);
     }
     onTab(document.querySelector("#tabs button.active").dataset.tab);

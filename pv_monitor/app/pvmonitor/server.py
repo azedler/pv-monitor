@@ -6,7 +6,7 @@ import json
 import os
 import re
 from contextlib import closing
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from starlette.applications import Starlette
@@ -363,7 +363,29 @@ async def plant_history(request):
     return result
 
 
+async def month_suggest(request):
+    """PV yield and battery throughput of a month from the long-term statistics."""
+    month = request.path_params["month"]
+    if not MONTH.match(month):
+        raise plant.Invalid("Monat muss JJJJ-MM sein")
+    sources = plant.month_sources(_layout())
+    ids = {e for entities in sources.values() for e in entities}
+    values = dict.fromkeys(sources)
+    if not ids:
+        return {"month": month, "values": values, "complete": False}
+    start, end = plant.period_range("month", f"{month}-01", await ha.time_zone())
+    rows = await ha.statistics(ids, start.isoformat(), end.isoformat(), "day")
+    for key, entities in sources.items():
+        parts = [ha.row_energy_kwh(r) for e in entities for r in rows.get(e, [])]
+        parts = [p for p in parts if p is not None]
+        # every source must have delivered, or the sum would silently be too small
+        if entities and parts and all(rows.get(e) for e in entities):
+            values[key] = round(sum(parts), 1)
+    return {"month": month, "values": values, "complete": end.isoformat() <= datetime.now(start.tzinfo).isoformat()}
+
+
 routes = [
+    Route("/api/months/{month}/suggest", ha_endpoint(month_suggest)),
     Route("/api/plant/layout", get_layout),
     Route("/api/plant/layout", put_layout, methods=["PUT"]),
     Route("/api/plant/entities", ha_endpoint(plant_entities)),

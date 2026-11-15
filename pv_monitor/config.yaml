@@ -1,5 +1,5 @@
 name: PV Monitor
-version: "0.6.0"
+version: "0.7.0"
 slug: pv_monitor
 description: Anlagenbild mit Strings und Verbrauchern, dazu Wirtschaftlichkeit mit Tarifhistorie
 arch:

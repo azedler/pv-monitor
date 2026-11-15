@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 ENTITY = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
 IDENT = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 KINDS = ("grid", "battery", "consumer")
-EMPTY = {"areas": [], "strings": [], "devices": []}
+EMPTY = {"areas": [], "strings": [], "devices": [], "yield_entity": None}
 MAX_ITEMS = 60
 MAX_SIDE = 40
 
@@ -148,7 +148,13 @@ def validate_layout(doc):
     for kind in ("grid", "battery"):
         if sum(1 for d in devices if d["kind"] == kind) > 1:
             raise Invalid("Netz und Batterie dürfen je nur einmal vorkommen")
-    return {"areas": areas, "strings": strings, "devices": devices}
+    return {
+        "areas": areas,
+        "strings": strings,
+        "devices": devices,
+        # the inverter's yield meter, for the monthly PV yield
+        "yield_entity": _entity(doc, "yield_entity"),
+    }
 
 
 def module_counts(layout):
@@ -273,6 +279,24 @@ def compose(layout, values, mode):
         "house": house,
         "consumers": consumers,
         "other": other if consumers else None,
+    }
+
+
+def month_sources(layout):
+    """Energy entities behind the monthly values the app can fill in itself.
+
+    PV yield comes from the yield meter, or failing that from the strings.
+    The battery needs real meters: a signed power sensor cannot be split.
+    """
+    battery = next((d for d in layout["devices"] if d["kind"] == "battery"), {})
+    if layout.get("yield_entity"):
+        pv = [layout["yield_entity"]]
+    else:
+        pv = [e for e in (_pick(s, ("energy_entity", "power_entity")) for s in layout["strings"]) if e]
+    return {
+        "pv_yield": pv,
+        "battery_charged": [e for e in [battery.get("energy_entity")] if e],
+        "battery_discharged": [e for e in [battery.get("energy_entity_2")] if e],
     }
 
 

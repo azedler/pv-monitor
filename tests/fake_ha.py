@@ -23,6 +23,7 @@ STATES = {
     "sensor.hut_2_power": ("unavailable", "W"),
     "sensor.string_a_energy": ("5120.4", "kWh"),
     "sensor.string_b_energy": ("3801.0", "kWh"),
+    "sensor.pv_total_energy": ("52000", "kWh"),
     "sensor.grid_import_power": ("0", "W"),
     "sensor.grid_export_power": ("4100", "W"),
     "sensor.grid_import_energy": ("43920", "kWh"),
@@ -41,6 +42,7 @@ STATES = {
 DAILY_KWH = {
     "sensor.string_a_energy": 24.0,
     "sensor.string_b_energy": 18.0,
+    "sensor.pv_total_energy": 60.0,
     "sensor.grid_import_energy": 6.0,
     "sensor.grid_export_energy": 30.0,
     "sensor.battery_charge_energy": 5.0,
