@@ -484,7 +484,7 @@ function renderTariffs() {
       <label>Art<select name="kind">${Object.entries(KINDS)
         .map(([k, v]) => `<option value="${k}" ${t.kind === k ? "selected" : ""}>${v}</option>`)
         .join("")}</select></label>
-      <label>gilt ab Abrechnungsmonat<input name="valid_from" type="date" required value="${esc(t.valid_from || "")}"></label>
+      <label>gilt ab Abrechnungsmonat<input name="valid_from" type="month" required placeholder="JJJJ-MM" pattern="\\d{4}-\\d{2}" value="${esc((t.valid_from || "").slice(0, 7))}"></label>
       <label>Vertragsbeginn (tagesgenau)<input name="starts_on" type="date" value="${esc(t.starts_on || "")}"></label>
       <label>Arbeitspreis brutto €/kWh<input name="energy_price" type="number" step="any" inputmode="decimal" required value="${t.energy_price ?? ""}"></label>
       <label>Grundpreis brutto €/Jahr<input name="base_price_year" type="number" step="any" inputmode="decimal" value="${t.base_price_year ?? ""}"></label>
@@ -513,6 +513,7 @@ function renderTariffs() {
     ev.preventDefault();
     run(async () => {
       const data = formData(ev.target);
+      if (data.valid_from && data.valid_from.length === 7) data.valid_from += "-01"; // month field -> first of the month
       state = t.id ? await api("PUT", `api/tariffs/${t.id}`, data) : await api("POST", "api/tariffs", data);
       editing.tariff = null;
       render();
