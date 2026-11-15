@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PV Monitor</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>PV Monitor</h1>
+  <nav id="tabs">
+    <button data-tab="overview" class="active">Übersicht</button>
+    <button data-tab="months">Monate</button>
+    <button data-tab="tariffs">Tarife</button>
+    <button data-tab="investments">Investitionen</button>
+    <button data-tab="data">Daten</button>
+  </nav>
+</header>
+<div id="error" role="alert" hidden></div>
+<main>
+  <section id="overview"></section>
+  <section id="months" hidden></section>
+  <section id="tariffs" hidden></section>
+  <section id="investments" hidden></section>
+  <section id="data" hidden></section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
