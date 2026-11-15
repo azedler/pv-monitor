@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS tariffs (
     provider TEXT,
     note TEXT,
     contract_end TEXT,
-    price_guarantee_until TEXT
+    price_guarantee_until TEXT,
+    monthly_payment REAL
 );
 CREATE TABLE IF NOT EXISTS meters (
     id INTEGER PRIMARY KEY,
@@ -67,6 +68,7 @@ TARIFF_FIELDS = (
     "note",
     "contract_end",
     "price_guarantee_until",
+    "monthly_payment",
 )
 READING_KINDS = {"grid": "grid_reading", "feed_in": "feed_reading", "heat": "heat_reading"}
 DEFAULT_METERS = (("Hausstrom", "grid"), ("Einspeisung", "feed_in"))
@@ -77,7 +79,20 @@ def connect(path: str) -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript(SCHEMA)
+    _migrate(con)
     return con
+
+
+# columns added after the first release: (table, column, type)
+ADDED_COLUMNS = (("tariffs", "monthly_payment", "REAL"),)
+
+
+def _migrate(con):
+    """Bring a database created by an older version up to the schema."""
+    for table, column, kind in ADDED_COLUMNS:
+        have = {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+        if column not in have:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
 
 def rows(con, sql, args=()):

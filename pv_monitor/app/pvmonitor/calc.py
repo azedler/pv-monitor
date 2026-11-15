@@ -10,7 +10,7 @@ Months are ``"YYYY-MM"`` strings, dates are ``"YYYY-MM-DD"`` strings.
 from __future__ import annotations
 
 import calendar
-from datetime import date
+from datetime import date, timedelta
 
 GRID = "grid"
 HEAT = "heat"
@@ -345,6 +345,122 @@ def check_month(derived, month: str):
         None if d["price"] else "für diesen Monat gilt kein Tarif",
     )
     return checks
+
+
+def _add_year(d: date) -> date:
+    try:
+        return d.replace(year=d.year + 1)
+    except ValueError:  # 29 February
+        return d.replace(year=d.year + 1, day=28)
+
+
+def _period_months(start: date, end: date):
+    """(month, share of that month inside the period) for start..end inclusive."""
+    out = []
+    cur = start.replace(day=1)
+    while cur <= end:
+        days = calendar.monthrange(cur.year, cur.month)[1]
+        lo, hi = max(start, cur), min(end, cur.replace(day=days))
+        out.append((cur.strftime("%Y-%m"), ((hi - lo).days + 1) / days))
+        cur = (cur.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return out
+
+
+def _expected_grid(real, month: str):
+    """Expected grid draw of a month without data: what the most recent same
+    calendar month drew, with the span of the last two as (kwh, low, high)."""
+    same = [d["grid_kwh"] for d in real if d["month"][5:7] == month[5:7]]
+    if not same:
+        if not real:
+            return None
+        mean = sum(d["grid_kwh"] for d in real[-12:]) / len(real[-12:])
+        return mean, mean, mean
+    return same[-1], min(same[-2:]), max(same[-2:])
+
+
+def _forecast_period(real, start: date, end: date, price: float, base_year):
+    by_month = {d["month"]: d for d in real}
+    rows = []
+    for month, share in _period_months(start, end):
+        actual = by_month.get(month)
+        if actual is not None:
+            kwh = low = high = actual["grid_kwh"] * share
+        else:
+            expected = _expected_grid(real, month)
+            if expected is None:
+                return None
+            kwh, low, high = (v * share for v in expected)
+        rows.append({"month": month, "share": share, "actual": actual is not None, "kwh": kwh, "low": low, "high": high})
+    months = sum(r["share"] for r in rows)
+    base = (base_year or 0.0) * months / 12
+
+    def cost(key, only=None):
+        return sum(r[key] for r in rows if only is None or r["actual"] == only) * price
+
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "months": months,
+        "rows": rows,
+        "kwh": sum(r["kwh"] for r in rows),
+        "kwh_low": sum(r["low"] for r in rows),
+        "kwh_high": sum(r["high"] for r in rows),
+        "kwh_so_far": sum(r["kwh"] for r in rows if r["actual"]),
+        "cost_energy": cost("kwh"),
+        "cost_base": base,
+        "cost": cost("kwh") + base,
+        "cost_low": cost("low") + base,
+        "cost_high": cost("high") + base,
+        "cost_so_far": cost("kwh", True) + (base_year or 0.0) * sum(r["share"] for r in rows if r["actual"]) / 12,
+    }
+
+
+def forecast_billing(derived, tariffs, today: str):
+    """The running billing period of the current grid tariff and the next one.
+
+    Months with readings count as they were; the rest is filled with the draw
+    of the most recent same calendar month. The period runs from the tariff's
+    real start to its contract end, the next tariff, or one year.
+    """
+    real = [d for d in derived if not d["baseline"]]
+    start_of = lambda t: t.get("starts_on") or t["valid_from"]  # noqa: E731
+    grid = sorted((t for t in tariffs if t["kind"] == GRID), key=start_of)
+    running = [t for t in grid if start_of(t) <= today]
+    if not running or not real:
+        return None
+    tariff = running[-1]
+    start = date.fromisoformat(start_of(tariff))
+    later = [t for t in grid if start_of(t) > start_of(tariff)]
+    if later:
+        end = date.fromisoformat(start_of(later[0])) - timedelta(days=1)
+    elif tariff.get("contract_end"):
+        end = date.fromisoformat(tariff["contract_end"])
+    else:
+        end = _add_year(start) - timedelta(days=1)
+    if end < start:
+        return None
+    current = _forecast_period(real, start, end, tariff["energy_price"], tariff.get("base_price_year"))
+    if current is None:
+        return None
+    payment = tariff.get("monthly_payment")
+    count = max(1, round(current["months"]))
+    current.update(
+        tariff=tariff,
+        payment_count=count,
+        monthly_payment=payment,
+        payments_total=None if payment is None else payment * count,
+        # positive: money back, negative: additional payment
+        balance=None if payment is None else payment * count - current["cost"],
+        recommended_payment=current["cost"] / count,
+    )
+    next_start = end + timedelta(days=1)
+    next_tariff = later[0] if later else tariff
+    upcoming = _forecast_period(
+        real, next_start, _add_year(next_start) - timedelta(days=1),
+        next_tariff["energy_price"], next_tariff.get("base_price_year"),
+    )
+    upcoming.update(tariff=next_tariff, tariff_known=bool(later), recommended_payment=upcoming["cost"] / 12)
+    return {"current": current, "next": upcoming}
 
 
 def today_month() -> str:

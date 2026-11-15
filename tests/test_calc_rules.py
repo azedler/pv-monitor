@@ -136,6 +136,51 @@ def test_projection_and_comparison():
     assert calc.tariff_break_even_kwh(0.30, 100, 0.30, 120) is None
 
 
+def test_forecast_billing():
+    months, tariffs, investments = load()
+    derived = calc.derive_months(months, tariffs, investments, "monthly")
+    by = {d["month"]: d for d in derived}
+    for t in tariffs:
+        if t.get("starts_on") == "2025-02-24":
+            t["monthly_payment"] = 150.0
+    f = calc.forecast_billing(derived, tariffs, "2025-12-10")
+    cur = f["current"]
+    # the running tariff began on 24 Feb 2025 and has no end: one year
+    assert (cur["start"], cur["end"]) == ("2025-02-24", "2026-02-23"), cur["start"]
+    assert cur["tariff"]["energy_price"] == 0.25 and cur["payment_count"] == 12
+    rows = {r["month"]: r for r in cur["rows"]}
+    assert list(rows)[0] == "2025-02" and list(rows)[-1] == "2026-02" and len(rows) == 13
+    assert near(rows["2025-02"]["share"], 5 / 28) and near(rows["2026-02"]["share"], 23 / 28)
+    assert near(sum(r["share"] for r in rows.values()), 12.0)
+    # months with readings count as they were, weighted by their share
+    assert rows["2025-06"]["actual"] and near(rows["2025-06"]["kwh"], by["2025-06"]["grid_kwh"])
+    assert near(rows["2025-02"]["kwh"], by["2025-02"]["grid_kwh"] * 5 / 28)
+    # the rest is the most recent same calendar month
+    assert not rows["2025-12"]["actual"] and near(rows["2025-12"]["kwh"], by["2024-12"]["grid_kwh"])
+    assert near(rows["2026-02"]["kwh"], by["2025-02"]["grid_kwh"] * 23 / 28)
+    kwh = sum(r["kwh"] for r in rows.values())
+    assert near(cur["kwh"], kwh) and near(cur["cost"], kwh * 0.25 + 300.0, 1e-6)
+    assert near(cur["payments_total"], 1800.0) and near(cur["balance"], 1800.0 - cur["cost"], 1e-6)
+    assert near(cur["recommended_payment"], cur["cost"] / 12, 1e-9)
+    assert cur["kwh_low"] <= cur["kwh"] <= cur["kwh_high"]
+    assert near(cur["kwh_so_far"], sum(r["kwh"] for r in rows.values() if r["actual"]))
+
+    nxt = f["next"]
+    assert (nxt["start"], nxt["end"]) == ("2026-02-24", "2027-02-23") and not nxt["tariff_known"]
+    assert near(nxt["months"], 12.0) and all(not r["actual"] for r in nxt["rows"])
+    assert near(nxt["recommended_payment"], (nxt["kwh"] * 0.25 + 300.0) / 12, 1e-6)
+
+    # a contract end shortens the period; no payment set means no balance
+    for t in tariffs:
+        if t.get("starts_on") == "2025-02-24":
+            t.update(contract_end="2025-12-31", monthly_payment=None)
+    short = calc.forecast_billing(derived, tariffs, "2025-12-10")["current"]
+    assert short["end"] == "2025-12-31" and short["balance"] is None and short["payments_total"] is None
+    # before the first tariff, or without data, there is nothing to say
+    assert calc.forecast_billing(derived, tariffs, "2020-01-01") is None
+    assert calc.forecast_billing([], tariffs, "2025-12-10") is None
+
+
 def test_months():
     assert calc.month_add("2023-12", 1) == "2024-01"
     assert calc.month_add("2024-01", -1) == "2023-12"

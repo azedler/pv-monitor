@@ -91,6 +91,67 @@ function tile(label, value, sub, tone) {
   return `<div class="tile${tone ? " tone-" + tone : ""}"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</div>`;
 }
 
+function forecastHtml() {
+  const f = state.forecast;
+  if (!f) return "";
+  const c = f.current;
+  const n = f.next;
+  const span = (x) => (Math.round(x.kwh_low) === Math.round(x.kwh_high) ? "" : `Spanne ${num(x.kwh_low)} bis ${num(x.kwh_high)} kWh`);
+  let verdict;
+  let payTiles = "";
+  if (c.monthly_payment == null) {
+    verdict = `Für diesen Tarif ist noch kein Abschlag eingetragen. Trage ihn unter <b>Tarife</b> ein, dann siehst du hier Guthaben oder Nachzahlung. Rechnerisch passend wären ${eur(c.recommended_payment, 0)} im Monat.`;
+  } else {
+    const back = c.balance >= 0;
+    const small = Math.abs(c.balance) <= 0.05 * c.cost;
+    verdict = small
+      ? `Der Abschlag passt: Am Ende des Zeitraums bleiben voraussichtlich ${eur(Math.abs(c.balance), 0)} ${back ? "Guthaben" : "Nachzahlung"}.`
+      : back
+        ? `Der Abschlag ist zu hoch: Am Ende des Zeitraums stehen voraussichtlich ${eur(c.balance, 0)} Guthaben. ${eur(c.recommended_payment, 0)} im Monat würden reichen.`
+        : `Der Abschlag ist zu niedrig: Am Ende des Zeitraums droht eine Nachzahlung von voraussichtlich ${eur(-c.balance, 0)}. Passend wären ${eur(c.recommended_payment, 0)} im Monat.`;
+    payTiles = `
+      ${tile("Abschläge gesamt", eur(c.payments_total, 0), `${c.payment_count} × ${eur(c.monthly_payment)}`)}
+      ${tile(back ? "Guthaben" : "Nachzahlung", eur(Math.abs(c.balance), 0), "voraussichtlich", back ? "gain" : "cost")}
+      ${tile("Passender Abschlag", eur(c.recommended_payment, 0), "im Monat")}`;
+  }
+  const t = n.tariff;
+  const priced = `${nf(4).format(t.energy_price)} €/kWh` + (t.base_price_year != null ? ` + ${num(t.base_price_year, 0)} €/Jahr` : "");
+  return `
+    <h2>Abschlag im laufenden Zeitraum</h2>
+    <p class="muted chart-note">${esc(c.tariff.provider || "Aktueller Tarif")}, ${dateLabel(c.start)} bis ${dateLabel(c.end)}. Monate ohne Ablesung sind mit dem Netzbezug des gleichen Monats im Vorjahr fortgeschrieben.</p>
+    <div class="card"><p class="verdict">${verdict}</p></div>
+    <div class="tiles" style="margin-top:10px">
+      ${tile("Netzbezug bisher", num(c.kwh_so_far) + " kWh", eur(c.cost_so_far, 0) + " inklusive Grundpreis", "cost")}
+      ${tile("Netzbezug bis Ende", num(c.kwh) + " kWh", span(c), "cost")}
+      ${tile("Kosten bis Ende", eur(c.cost, 0), `davon Grundpreis ${eur(c.cost_base, 0)}`, "cost")}
+      ${payTiles}
+    </div>
+    <div class="card chart" id="chart-forecast"></div>
+    <h2>Nächster Zeitraum ab ${dateLabel(n.start)}</h2>
+    <p class="muted chart-note">Erwarteter Netzbezug aus den letzten zwölf Monaten. Für ein konkretes Angebot rechnet der Tarifvergleich unter <b>Tarife</b> den Abschlag aus.</p>
+    <div class="tiles">
+      ${tile("Erwarteter Netzbezug", num(n.kwh) + " kWh", span(n), "cost")}
+      ${tile("Angabe für den Anbieter", num(Math.ceil(n.kwh / 100) * 100) + " kWh", "Jahresverbrauch, aufgerundet")}
+      ${tile("Abschlag", eur(n.recommended_payment, 0), (n.tariff_known ? "beim eingetragenen Folgetarif: " : "bei heutigem Preis: ") + priced)}
+    </div>`;
+}
+
+function drawForecastChart() {
+  const el = $("#chart-forecast");
+  if (!el || !state.forecast) return;
+  const rows = state.forecast.current.rows;
+  Charts.draw(el, {
+    title: "Netzbezug im Abrechnungszeitraum",
+    labels: rows.map((r) => monthLabel(r.month)),
+    ticks: (label) => label.split("/")[0],
+    format: (v) => num(v) + " kWh",
+    series: [
+      { name: "abgelesen", type: "bar", stack: "kwh", color: "var(--c-cost)", values: rows.map((r) => (r.actual ? r.kwh : null)) },
+      { name: "Prognose", type: "bar", stack: "kwh", color: "var(--c-cost-soft)", values: rows.map((r) => (r.actual ? null : r.kwh)) },
+    ],
+  });
+}
+
 function renderOverview() {
   const s = state.summary;
   const el = $("#overview");
@@ -112,6 +173,7 @@ function renderOverview() {
       ${tile("Amortisation", pct(s.amortisation), "offen " + eur(s.remaining, 0), "gain")}
       ${tile("Break-even", beText, beSub)}
     </div>
+    ${forecastHtml()}
     <h2>Letzte ${r.months} Monate</h2>
     <div class="tiles">
       ${tile("PV-Ertrag", num(r.pv_yield) + " kWh", null, "sun")}
@@ -133,6 +195,7 @@ function renderOverview() {
     </div>
     <h2>Prüfung ${monthLabel(last.month)}</h2>
     <div class="card">${checksHtml(state.checks)}</div>`;
+  if (!el.hidden) drawForecastChart(); // charts measure their container
 }
 
 const MONTH_NAMES = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
@@ -405,11 +468,11 @@ function renderTariffs() {
   el.innerHTML = `
     <h2>Tarife</h2>
     <div class="scroll"><table>
-      <thead><tr><th>gilt ab Monat</th><th>Art</th><th>Vertragsbeginn</th><th>Arbeitspreis €/kWh</th><th>Grundpreis €/Jahr</th><th class="text">Anbieter / Notiz</th><th></th></tr></thead>
+      <thead><tr><th>gilt ab Monat</th><th>Art</th><th>Vertragsbeginn</th><th>Arbeitspreis €/kWh</th><th>Grundpreis €/Jahr</th><th>Abschlag €/Monat</th><th class="text">Anbieter / Notiz</th><th></th></tr></thead>
       <tbody>${state.tariffs
         .map(
           (x) => `<tr><td>${monthLabel(x.valid_from.slice(0, 7))}</td><td>${KINDS[x.kind]}</td><td>${dateLabel(x.starts_on)}</td>
-          <td>${nf(4).format(x.energy_price)}</td><td>${num(x.base_price_year, 2)}</td>
+          <td>${nf(4).format(x.energy_price)}</td><td>${num(x.base_price_year, 2)}</td><td>${num(x.monthly_payment, 2)}</td>
           <td class="text">${esc(x.provider || x.note || "")}</td>
           <td><button class="link" data-edit-tariff="${x.id}">ändern</button><button class="link danger" data-del-tariff="${x.id}">löschen</button></td></tr>`
         )
@@ -424,6 +487,7 @@ function renderTariffs() {
       <label>Vertragsbeginn (tagesgenau)<input name="starts_on" type="date" value="${esc(t.starts_on || "")}"></label>
       <label>Arbeitspreis brutto €/kWh<input name="energy_price" type="number" step="any" inputmode="decimal" required value="${t.energy_price ?? ""}"></label>
       <label>Grundpreis brutto €/Jahr<input name="base_price_year" type="number" step="any" inputmode="decimal" value="${t.base_price_year ?? ""}"></label>
+      <label>Abschlag €/Monat<input name="monthly_payment" type="number" step="any" inputmode="decimal" value="${t.monthly_payment ?? ""}"></label>
       <label>Anbieter<input name="provider" value="${esc(t.provider || "")}"></label>
       <label>Notiz<input name="note" value="${esc(t.note || "")}"></label>
       <label>Vertragsende<input name="contract_end" type="date" value="${esc(t.contract_end || "")}"></label>
@@ -487,6 +551,7 @@ function renderTariffs() {
         ${tile("tatsächlich gezahlt", eur(r.actual_cost), null, "cost")}
         ${tile("mit diesem Tarif", eur(r.alternative_cost), diff == null ? "" : (diff > 0 ? "teurer um " : "günstiger um ") + eur(Math.abs(diff)))}
         ${tile("Gleichstand bei", r.break_even_kwh == null ? "–" : num(r.break_even_kwh) + " kWh/Jahr", "gegen den aktuellen Tarif")}
+        ${r.next_period ? tile("Abschlag ab " + dateLabel(r.next_period.start), eur(r.next_period.recommended_payment, 0), `im Monat, bei ${num(r.next_period.kwh)} kWh und ${eur(r.next_period.cost, 0)} im Jahr`) : ""}
       </div>`;
     });
   });
@@ -592,6 +657,7 @@ document.querySelectorAll("#tabs button").forEach((btn) =>
     document.querySelectorAll("main > section").forEach((s) => (s.hidden = s.id !== btn.dataset.tab));
     // charts measure their container, so they are drawn once it is visible
     if (state && chartsVisible()) renderCharts();
+    if (state && btn.dataset.tab === "overview") drawForecastChart();
     Plant.onTab(btn.dataset.tab);
   })
 );
@@ -604,5 +670,9 @@ run(async () => {
 let resizeTimer = null;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => state && chartsVisible() && renderCharts(), 150);
+  resizeTimer = setTimeout(() => {
+    if (!state) return;
+    if (chartsVisible()) renderCharts();
+    if (!$("#overview").hidden) drawForecastChart();
+  }, 150);
 });

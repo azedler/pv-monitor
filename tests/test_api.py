@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "pv_monitor" / "app"))
 tmp = tempfile.mkdtemp()
 os.environ["PVMON_DB"] = os.path.join(tmp, "test.sqlite")
 os.environ.pop("SUPERVISOR_TOKEN", None)
+os.environ["PVMON_TODAY"] = "2025-12-10"
 
 from starlette.testclient import TestClient  # noqa: E402
 
@@ -114,8 +115,20 @@ def main():
     assert c.delete(f"/api/tariffs/{new['id']}").status_code == 404
     assert c.post("/api/tariffs", json={"valid_from": "2027-03-01"}).status_code == 400
 
+    # forecast: the running tariff, its payment and the next period
+    fc = c.get("/api/state").json()["forecast"]
+    assert fc["current"]["start"] == "2025-02-24" and fc["current"]["balance"] is None
+    running = fc["current"]["tariff"]
+    state = c.put(f"/api/tariffs/{running['id']}", json=dict(running, monthly_payment=140)).json()
+    assert state["forecast"]["current"]["payments_total"] == 140 * 12
+    assert abs(state["forecast"]["current"]["balance"] - (1680 - state["forecast"]["current"]["cost"])) < 1e-6
+    assert c.put(f"/api/tariffs/{running['id']}", json=dict(running, monthly_payment="x")).status_code == 400
+
     cmp_ = c.post("/api/tariffs/compare", json={"energy_price": 0.28, "base_price_year": 120}).json()
     assert round(cmp_["break_even_kwh"]) == 6000 and cmp_["months"] == 12, cmp_
+    nxt = cmp_["next_period"]
+    assert nxt["start"] == "2026-02-24" and abs(nxt["cost"] - (nxt["kwh"] * 0.28 + 120)) < 1e-6
+    assert abs(nxt["recommended_payment"] - nxt["cost"] / 12) < 1e-9
 
     total = state["summary"]["invest_total"]
     state = c.post("/api/investments", json={"label": "Test", "amount": -100, "date": "2025-10-01"}).json()

@@ -6,6 +6,7 @@ import json
 import os
 import re
 from contextlib import closing
+from datetime import date
 from pathlib import Path
 
 from starlette.applications import Starlette
@@ -28,6 +29,11 @@ DEFAULT_MODE = calc.MODE_DAILY
 
 class Invalid(ValueError):
     pass
+
+
+def _today() -> str:
+    """Today as YYYY-MM-DD; PVMON_TODAY pins it for tests."""
+    return os.environ.get("PVMON_TODAY") or date.today().isoformat()
 
 
 def db_path() -> str:
@@ -106,6 +112,7 @@ def clean_tariff(data):
         "note": _text(data, "note"),
         "contract_end": _date(data, "contract_end"),
         "price_guarantee_until": _date(data, "price_guarantee_until"),
+        "monthly_payment": _number(data, "monthly_payment"),
     }
 
 
@@ -144,6 +151,7 @@ def build_state(con, candidate=None):
         "months": derived,
         "summary": summary,
         "next_month": calc.month_add(last, 1) if last else calc.month_add(calc.today_month(), -1),
+        "forecast": calc.forecast_billing(derived, tariffs, _today()),
         "checks": calc.check_month(derived, summary["last_month"]) if summary["last_month"] else [],
     }
 
@@ -248,6 +256,17 @@ def compare_tariff(con, request, body):
     state = build_state(con)
     result = calc.compare_tariff(state["months"], price, base)
     current = [t for t in state["tariffs"] if t["kind"] == calc.GRID]
+    upcoming = (state["forecast"] or {}).get("next")
+    if upcoming:
+        # the same expected draw, priced with the tariff that is being considered
+        cost = upcoming["kwh"] * price + base
+        result["next_period"] = {
+            "start": upcoming["start"],
+            "end": upcoming["end"],
+            "kwh": upcoming["kwh"],
+            "cost": cost,
+            "recommended_payment": cost / 12,
+        }
     result["break_even_kwh"] = None
     if current and current[-1].get("base_price_year") is not None:
         result["break_even_kwh"] = calc.tariff_break_even_kwh(

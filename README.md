@@ -32,6 +32,7 @@ python tests/test_calc_against_workbook.py   # needs the private workbook, see i
 python tests/test_calc_rules.py
 python tests/test_api.py
 python tests/test_plant.py
+python tests/test_migration.py
 ```
 
 Captured values (readings, monthly values, tariffs, investments) are stored;
