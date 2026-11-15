@@ -70,7 +70,7 @@ const Plant = (() => {
     for (const s of data.strings) {
       const v = shown[s.id];
       const sp = spec(s.id, v);
-      out[s.id] = { value: v, specific: s.kwp && v != null ? v / s.kwp : null, level: sp == null || !top ? null : Math.max(0, Math.min(1, sp / top)) };
+      out[s.id] = { value: v, has_sensor: s.has_sensor, specific: s.kwp && v != null ? v / s.kwp : null, level: sp == null || !top ? null : Math.max(0, Math.min(1, sp / top)) };
     }
     return out;
   }
@@ -107,27 +107,20 @@ const Plant = (() => {
         t.y += cy + c / 2;
         t.n += 1;
       });
-      if (c >= 14)
-        for (const [sid, t] of Object.entries(centers))
-          svg += `<text class="string-label" x="${(t.x / t.n).toFixed(1)}" y="${(t.y / t.n).toFixed(1)}" dy="0.35em" text-anchor="middle">${esc(names[sid])}</text>`;
+      // name and figures sit inside the string, at the centre of its modules
+      for (const [sid, t] of Object.entries(centers)) {
+        const lv = levels[sid] || {};
+        const lines = [["name", names[sid]]];
+        if (c >= 14) lines.push(["val", !lv.has_sensor ? "kein Sensor" : amount(lv.value)]);
+        if (c >= 14 && t.n >= 6 && lv.specific != null) lines.push(["spec", `${nf(live() ? 0 : 2).format(lv.specific)} ${live() ? "W/kWp" : "kWh/kWp"}`]);
+        const y = t.y / t.n - ((lines.length - 1) * 12) / 2;
+        lines.forEach(([cls, text], i) => {
+          svg += `<text class="string-label ${cls}${t.n < 4 ? " small" : ""}" x="${(t.x / t.n).toFixed(1)}" y="${(y + i * 12).toFixed(1)}" dy="0.35em" text-anchor="middle">${esc(text)}</text>`;
+        });
+      }
       x += w + gap;
     }
     return `<svg class="roof" viewBox="0 0 ${W} ${H.toFixed(0)}" role="img" aria-label="Dachflächen mit Strings">${svg}</svg>`;
-  }
-
-  function chips(levels) {
-    const unit = live() ? "W/kWp" : "kWh/kWp";
-    return (
-      '<div class="chips">' +
-      data.strings
-        .map((s) => {
-          const lv = levels[s.id];
-          const sub = !s.has_sensor ? "kein Sensor" : lv.value == null ? "kein Wert" : lv.specific == null ? "" : `${nf(live() ? 0 : 2).format(lv.specific)} ${unit}`;
-          return `<button class="chip${selected === s.id ? " sel" : ""}" data-string="${esc(s.id)}"><i style="background:${fill(lv.level)}"></i><span><b>${esc(s.name)}</b> ${esc(amount(lv.value))}<small>${esc(sub)}</small></span></button>`;
-        })
-        .join("") +
-      "</div>"
-    );
   }
 
   function flowSvg() {
@@ -207,10 +200,10 @@ const Plant = (() => {
       html += '<div class="card"><p class="muted">Lade Werte …</p></div>';
     } else {
       const levels = stringLevels();
-      html += `<div class="card picture">${roofSvg(levels)}`;
+      html += `<div class="card picture"><div class="roofwrap">${roofSvg(levels)}</div>`;
       if (!live() && data.steps && data.steps.length > 1)
         html += `<div class="slider"><input type="range" min="-1" max="${data.steps.length - 1}" value="${step}" aria-label="Zeitpunkt"><span>${step < 0 ? "ganzer Zeitraum" : esc(stepLabel(data.steps[step]))}</span></div>`;
-      html += `${chips(levels)}</div><div class="card picture">${flowSvg()}</div>${consumersHtml()}${detailHtml()}`;
+      html += `</div><div class="card picture">${flowSvg()}</div>${consumersHtml()}${detailHtml()}`;
     }
     el.innerHTML = html;
 
@@ -222,27 +215,22 @@ const Plant = (() => {
         load();
       })
     );
-    el.querySelectorAll("[data-string]").forEach((n) =>
-      n.addEventListener("click", () => {
-        selected = selected === n.dataset.string ? null : n.dataset.string;
-        render();
-      })
-    );
+    const bindStrings = () =>
+      el.querySelectorAll("[data-string]").forEach((n) =>
+        n.addEventListener("click", () => {
+          selected = selected === n.dataset.string ? null : n.dataset.string;
+          render();
+        })
+      );
+    bindStrings();
     const slider = el.querySelector(".slider input");
     if (slider)
       slider.addEventListener("input", () => {
         step = Number(slider.value);
-        // repaint only what the slider changes, the thumb keeps the focus
-        const levels = stringLevels();
-        el.querySelectorAll(".cell").forEach((r) => (r.style.fill = fill((levels[r.dataset.string] || {}).level)));
+        // redraw only the roof, so the thumb keeps the focus while dragging
+        el.querySelector(".roofwrap").innerHTML = roofSvg(stringLevels());
         el.querySelector(".slider span").textContent = step < 0 ? "ganzer Zeitraum" : stepLabel(data.steps[step]);
-        el.querySelector(".chips").outerHTML = chips(levels);
-        el.querySelectorAll(".chip").forEach((n) =>
-          n.addEventListener("click", () => {
-            selected = selected === n.dataset.string ? null : n.dataset.string;
-            render();
-          })
-        );
+        bindStrings();
       });
     const chart = $("#string-chart");
     if (chart)
