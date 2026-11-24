@@ -1,5 +1,5 @@
 name: PV Monitor
-version: "0.10.0"
+version: "0.11.0"
 slug: pv_monitor
 description: Anlagenbild mit Strings und Verbrauchern, dazu Wirtschaftlichkeit mit Tarifhistorie
 arch:
@@ -12,3 +12,7 @@ panel_icon: mdi:solar-power
 panel_title: PV Monitor
 panel_admin: false
 homeassistant_api: true
+# Writes only the roof card to www/pv-monitor/ (Doc 143 B'1); see CHANGELOG 0.11.0.
+map:
+  - type: homeassistant_config
+    read_only: false

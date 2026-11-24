@@ -121,16 +121,14 @@ async def time_zone() -> str:
     return config.get("time_zone") or "UTC"
 
 
-async def statistics(statistic_ids, start_iso, end_iso, period):
-    """Long-term statistics rows per id, energy in kWh and power in W.
+async def ws_commands(commands):
+    """Send websocket commands in order on one connection; return their results.
 
-    Each row has ``start``/``end`` in epoch milliseconds and ``change`` (meters)
-    or ``mean`` (measurements), whichever the statistic carries.
+    Each command is a dict without ``id``. A command Home Assistant rejects
+    raises HaError with its message.
     """
     _, ws_url, token = _require()
-    ids = sorted(set(statistic_ids))
-    if not ids:
-        return {}
+    results = []
     try:
         async with _session(token) as session:
             async with session.ws_connect(ws_url, max_msg_size=32 * 1024 * 1024) as ws:
@@ -139,27 +137,61 @@ async def statistics(statistic_ids, start_iso, end_iso, period):
                 await ws.send_json({"type": "auth", "access_token": token})
                 if (await ws.receive_json()).get("type") != "auth_ok":
                     raise HaError("Home Assistant lehnt die Anmeldung ab")
-                await ws.send_json(
-                    {
-                        "id": 1,
-                        "type": "recorder/statistics_during_period",
-                        "start_time": start_iso,
-                        "end_time": end_iso,
-                        "statistic_ids": ids,
-                        "period": period,
-                        "types": ["change", "mean"],
-                        "units": {"energy": "kWh", "power": "W"},
-                    }
-                )
-                while True:
-                    msg = await ws.receive_json()
-                    if msg.get("id") == 1 and msg.get("type") == "result":
-                        break
-                if not msg.get("success"):
-                    detail = (msg.get("error") or {}).get("message") or "Fehler"
-                    raise HaError(f"Statistik-Abfrage abgelehnt: {detail}")
-                return msg.get("result") or {}
+                for number, command in enumerate(commands, start=1):
+                    await ws.send_json({"id": number, **command})
+                    while True:
+                        msg = await ws.receive_json()
+                        if msg.get("id") == number and msg.get("type") == "result":
+                            break
+                    if not msg.get("success"):
+                        detail = (msg.get("error") or {}).get("message") or "Fehler"
+                        raise HaError(f"{command['type']} abgelehnt: {detail}")
+                    results.append(msg.get("result"))
+        return results
     except (aiohttp.ClientError, asyncio.TimeoutError, TypeError, ValueError) as exc:
+        raise HaError("Home Assistant ist nicht erreichbar") from exc
+
+
+async def statistics(statistic_ids, start_iso, end_iso, period):
+    """Long-term statistics rows per id, energy in kWh and power in W.
+
+    Each row has ``start``/``end`` in epoch milliseconds and ``change`` (meters)
+    or ``mean`` (measurements), whichever the statistic carries.
+    """
+    ids = sorted(set(statistic_ids))
+    if not ids:
+        return {}
+    (result,) = await ws_commands([{
+        "type": "recorder/statistics_during_period",
+        "start_time": start_iso,
+        "end_time": end_iso,
+        "statistic_ids": ids,
+        "period": period,
+        "types": ["change", "mean"],
+        "units": {"energy": "kWh", "power": "W"},
+    }])
+    return result or {}
+
+
+async def get_state(entity_id):
+    """The raw state object of one entity, or None if Home Assistant has none."""
+    base, _, token = _require()
+    async with _session(token) as session:
+        return await _get(session, base, f"/states/{entity_id}")
+
+
+async def set_state(entity_id, state, attributes):
+    """Create or replace a state in Home Assistant (POST /api/states/...).
+
+    This writes a state only: no entity in the registry, no configuration.
+    """
+    base, _, token = _require()
+    try:
+        async with _session(token) as session:
+            async with session.post(f"{base}/states/{entity_id}", json={"state": state, "attributes": attributes}) as resp:
+                if resp.status >= 400:
+                    raise HaError(f"Home Assistant antwortet mit {resp.status}")
+    except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
         raise HaError("Home Assistant ist nicht erreichbar") from exc
 
 

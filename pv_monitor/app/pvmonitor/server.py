@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
+import logging
 import os
 import re
 import time
@@ -17,7 +20,7 @@ from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import calc, db, ha, plant
+from . import calc, db, ha, plant, publish
 
 STATIC = Path(__file__).parent / "static"
 INGRESS_PROXY = "172.30.32.2"
@@ -335,7 +338,24 @@ async def put_layout(request):
     with closing(db.connect(db_path())) as con:
         db.set_setting(con, "plant_layout", json.dumps(layout))
         con.commit()
+    if ha.available():
+        _background(publish.publish_state(layout))  # the roof card follows at once
     return JSONResponse({"layout": layout, "ha": ha.available()})
+
+
+_tasks = set()
+
+
+def _background(coro):
+    async def guarded():
+        try:
+            await coro
+        except (ha.HaError, ValueError) as exc:
+            logging.getLogger("pvmonitor.publish").warning("%s nicht gesetzt: %s", publish.ENTITY_ID, exc)
+
+    task = asyncio.create_task(guarded())
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
 
 
 def ha_endpoint(fn):
@@ -481,4 +501,18 @@ routes = [
     Mount("/", StaticFiles(directory=STATIC, html=True)),
 ]
 
-app = Starlette(routes=routes, middleware=[Middleware(IngressOnly)])
+@contextlib.asynccontextmanager
+async def lifespan(app):
+    """Keep the roof card, its resource and sensor.pv_monitor_anlage in place."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    stop = asyncio.Event()
+    keeper = None
+    if os.environ.get("PVMON_PUBLISH", "1") != "0":
+        keeper = asyncio.create_task(publish.keep(_layout, stop))
+    yield
+    stop.set()
+    if keeper:
+        await keeper
+
+
+app = Starlette(routes=routes, middleware=[Middleware(IngressOnly)], lifespan=lifespan)

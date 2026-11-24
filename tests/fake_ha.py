@@ -55,6 +55,14 @@ DAILY_KWH = {
 PEAK_W = {"sensor.string_c_power": 2400.0, "sensor.hut_1_power": 300.0, "sensor.wallbox_power": 0.0}
 
 requests_seen = []
+# states set through POST /api/states (they vanish on a "restart": clear())
+POSTED = {}
+# Lovelace resources as Home Assistant keeps them
+RESOURCES = [
+    {"id": "r-other", "type": "module", "url": "/hacsfiles/other-card/other-card.js?hacstag=1"},
+    {"id": "r-css", "type": "css", "url": "/local/theme.css"},
+]
+resource_calls = []
 
 
 def _state(entity_id):
@@ -85,9 +93,21 @@ async def state(request):
     if not _authorized(request):
         return web.Response(status=401)
     entity_id = request.match_info["entity_id"]
+    if entity_id in POSTED:
+        return web.json_response(POSTED[entity_id])
     if entity_id not in STATES:
         return web.Response(status=404)
     return web.json_response(_state(entity_id))
+
+
+async def post_state(request):
+    if not _authorized(request):
+        return web.Response(status=401)
+    entity_id = request.match_info["entity_id"]
+    body = await request.json()
+    created = entity_id not in POSTED
+    POSTED[entity_id] = {"entity_id": entity_id, "state": body["state"], "attributes": body.get("attributes", {})}
+    return web.json_response(POSTED[entity_id], status=201 if created else 200)
 
 
 def _sun(hour):
@@ -128,7 +148,21 @@ async def websocket(request):
     async for msg in ws:
         data = msg.json()
         requests_seen.append(data)
-        if data.get("type") != "recorder/statistics_during_period":
+        kind = data.get("type")
+        if kind and kind.startswith("lovelace/resources"):
+            resource_calls.append(data)
+            if kind == "lovelace/resources":
+                result = [dict(r) for r in RESOURCES]
+            elif kind == "lovelace/resources/create":
+                RESOURCES.append({"id": f"r{len(RESOURCES) + 1}", "type": data["res_type"], "url": data["url"]})
+                result = RESOURCES[-1]
+            else:
+                item = next(r for r in RESOURCES if r["id"] == data["resource_id"])
+                item.update(type=data["res_type"], url=data["url"])
+                result = item
+            await ws.send_json({"id": data["id"], "type": "result", "success": True, "result": result})
+            continue
+        if kind != "recorder/statistics_during_period":
             await ws.send_json({"id": data["id"], "type": "result", "success": False, "error": {"message": "unknown command"}})
             continue
         start = datetime.fromisoformat(data["start_time"])
@@ -149,6 +183,7 @@ def make_app():
             web.get("/api/config", config),
             web.get("/api/states", states),
             web.get("/api/states/{entity_id}", state),
+            web.post("/api/states/{entity_id}", post_state),
             web.get("/api/websocket", websocket),
         ]
     )

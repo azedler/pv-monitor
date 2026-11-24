@@ -15,6 +15,11 @@ In Home Assistant: Settings → Add-ons → Add-on Store → ⋮ → Repositorie
 from the sidebar. The data lives in the add-on's `/data` folder and is part of
 its backup.
 
+The add-on also provides a roof card for dashboards: add a card of type
+`custom:pv-monitor-roof-card`. It is installed by the add-on itself (files in
+`/config/www/pv-monitor/`, one Lovelace resource) and draws the layout from the
+state `sensor.pv_monitor_anlage`. Removal is described in `CHANGELOG.md` 0.11.0.
+
 ## Develop
 
 ```
@@ -31,6 +36,7 @@ python tests/test_calc_rules.py
 python tests/test_api.py
 python tests/test_plant.py
 python tests/test_migration.py
+python tests/test_publish.py
 ```
 
 Captured values (readings, monthly values, tariffs, investments) are stored;
