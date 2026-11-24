@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.4 (24.11.2026)
+
+- Investment category **Sonstiges** added next to PV-Anlage, Speicher and
+  Hundehütte.
+
 ## 0.11.3 (24.11.2026)
 
 - Investment categories are the build targets: **PV-Anlage, Speicher,

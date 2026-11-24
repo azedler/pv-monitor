@@ -71,7 +71,7 @@ def main():
     assert abs(after["summary"]["invest_total"] - fx.INVEST_TOTAL) < 1e-9
 
     # the offered list is the build targets
-    assert list(calc.INVESTMENT_CATEGORIES) == ["PV-Anlage", "Speicher", "Hundehütte"]
+    assert list(calc.INVESTMENT_CATEGORIES) == ["PV-Anlage", "Speicher", "Hundehütte", "Sonstiges"]
     # back to "without", then a build target
     after = c.put(f"/api/investments/{inv['id']}/category", json={"category": None}).json()
     assert by_label(after, "Wechselrichter")["category"] is None
