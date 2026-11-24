@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.3 (24.11.2026)
+
+- Investment categories are the build targets: **PV-Anlage, Speicher,
+  Hundehütte**. Categories already in the data stay choosable; nothing is
+  renamed. "Speicher" still feeds the storage page.
+
 ## 0.11.2 (24.11.2026)
 
 Wide tables and categories in the investment list (Doc 142 §12.3 B1, B3). No
@@ -17,9 +23,8 @@ change to stored data or to how figures are computed.
   says "gespeichert"; if saving fails, the old value stays and the row shows
   why. Posts without a category are marked and counted above the list. Below
   the list: the sum per category; the sum "Speicher" is the cost the storage
-  page uses. Offered categories: Module, Wechselrichter, Speicher,
-  Montage/Elektro, Wallbox, Hütte, Sonstiges, plus every category already in
-  the data (nothing is renamed). The form keeps free text with these as
+  page uses. Offered categories: see 0.11.3, plus every
+  category already in the data (nothing is renamed). The form keeps free text with these as
   suggestions.
 - New API: `PUT api/investments/<id>/category` with `{"category": ...}`.
 

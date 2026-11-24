@@ -577,8 +577,9 @@ def periods(derived):
 
 
 STORAGE_CATEGORY = "speicher"
-# Offered in the investment list; categories already in the data stay valid too.
-INVESTMENT_CATEGORIES = ("Module", "Wechselrichter", "Speicher", "Montage/Elektro", "Wallbox", "Hütte", "Sonstiges")
+# Offered in the investment list: what a post was built for. Categories already
+# in the data stay valid too.
+INVESTMENT_CATEGORIES = ("PV-Anlage", "Speicher", "Hundehütte")
 
 
 def category_key(name):

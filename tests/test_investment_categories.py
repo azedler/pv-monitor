@@ -70,13 +70,15 @@ def main():
     assert after["investment_categories"]["uncategorized"] == 2
     assert abs(after["summary"]["invest_total"] - fx.INVEST_TOTAL) < 1e-9
 
-    # back to "without", and a category the list does not know yet
+    # the offered list is the build targets
+    assert list(calc.INVESTMENT_CATEGORIES) == ["PV-Anlage", "Speicher", "Hundehütte"]
+    # back to "without", then a build target
     after = c.put(f"/api/investments/{inv['id']}/category", json={"category": None}).json()
     assert by_label(after, "Wechselrichter")["category"] is None
-    after = c.put(f"/api/investments/{inv['id']}/category", json={"category": "Hütte"}).json()
-    assert by_label(after, "Wechselrichter")["category"] == "Hütte"
-    hut = next(t for t in after["investment_categories"]["totals"] if t["category"] == "Hütte")
-    assert hut == {"category": "Hütte", "total": 3000.0, "items": 1}
+    after = c.put(f"/api/investments/{inv['id']}/category", json={"category": "Hundehütte"}).json()
+    assert by_label(after, "Wechselrichter")["category"] == "Hundehütte"
+    hut = next(t for t in after["investment_categories"]["totals"] if t["category"] == "Hundehütte")
+    assert hut == {"category": "Hundehütte", "total": 3000.0, "items": 1}
     # every post counted once
     rows = after["investment_categories"]["totals"]
     assert sum(t["items"] for t in rows) == len(after["investments"])
@@ -86,7 +88,7 @@ def main():
     assert c.put("/api/investments/9999/category", json={"category": "Module"}).status_code == 404
     assert c.put(f"/api/investments/{inv['id']}/category", json={}).status_code == 400
     assert c.put(f"/api/investments/{inv['id']}/category", json={"category": 5}).status_code == 400
-    assert by_label(c.get("/api/state").json(), "Wechselrichter")["category"] == "Hütte"
+    assert by_label(c.get("/api/state").json(), "Wechselrichter")["category"] == "Hundehütte"
 
     # the page offers the field and the sums
     js = c.get("/app.js").text
