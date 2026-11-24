@@ -201,6 +201,11 @@ tr.no-cat td { background: color-mix(in oklab, var(--warn-bg) 55%, transparent);
 .row-status.ok { color: var(--c-gain); }
 .row-status.err { color: var(--warn); white-space: normal; }
 .cat-missing-note { margin: 0 0 12px; padding: 12px 16px; border-radius: 14px; background: var(--warn-bg); color: var(--warn); }
+/* "Wirtschaft" per build target (Doc 142 §12.8) */
+.target-note { margin: -8px 0 0; padding: 10px 14px; border-left: 3px solid var(--accent); border-radius: 0 12px 12px 0; background: var(--card); color: var(--text2); }
+table.targets tfoot th { color: var(--text); font-weight: 600; border-bottom: 0; }
+table.targets tr.check-ok th:last-child { color: var(--c-gain); }
+table.targets tr.check-bad th { color: var(--warn); }
 table.cat-totals tfoot th { color: var(--text); font-weight: 600; border-bottom: 0; }
 td.text, th.text { text-align: left; white-space: normal; min-width: 160px; }
 tr:last-child td, tr:last-child th { border-bottom: 0; }

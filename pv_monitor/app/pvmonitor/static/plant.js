@@ -365,7 +365,9 @@ const Plant = (() => {
         ${entityInput("yield_entity", draft.yield_entity, "Zähler PV-Ertrag gesamt")}
         ${entityInput("forecast_today_entity", draft.forecast_today_entity, "Prognose heute (kWh)")}
         ${entityInput("forecast_tomorrow_entity", draft.forecast_tomorrow_entity, "Prognose morgen (kWh)")}
-      </form><p class="muted">Aus dem Zähler und den Batteriezählern unten füllt „Monate“ PV-Ertrag und Batteriewerte selbst aus. Die Prognose erscheint auf der Seite „Anlage“.</p></div>
+        ${entityInput("hut_entity", draft.hut_entity, "Zähler Ertrag Hundehütte (kWh)")}
+        <label class="check"><input type="checkbox" data-p="hut_in_yield" ${draft.hut_in_yield !== false ? "checked" : ""}> Der Monatswert PV-Ertrag enthält die Hundehütte schon</label>
+      </form><p class="muted">Aus dem Zähler und den Batteriezählern unten füllt „Erfassung“ PV-Ertrag und Batteriewerte selbst aus. Die Prognose erscheint auf der Seite „Anlage“. Der Zähler der Hundehütte liefert ihren Anteil am Erlös in „Wirtschaft“; dafür muss er ein Zählerstand sein (Gesamtenergie), keine Leistung.</p></div>
       <h2>1. Strings</h2>${strings}
       <p><button class="secondary" data-act="add-string">String hinzufügen</button></p>
       <h2>2. Dachflächen</h2>${draft.strings.length ? "" : '<p class="muted">Lege zuerst die Strings an.</p>'}${areas}
@@ -441,7 +443,7 @@ const Plant = (() => {
     } else if (act === "import") {
       try {
         const doc = JSON.parse($("#layout-json").value);
-        draft = { areas: doc.areas || [], strings: doc.strings || [], devices: doc.devices || [], yield_entity: doc.yield_entity || null, forecast_today_entity: doc.forecast_today_entity || null, forecast_tomorrow_entity: doc.forecast_tomorrow_entity || null };
+        draft = { areas: doc.areas || [], strings: doc.strings || [], devices: doc.devices || [], yield_entity: doc.yield_entity || null, hut_entity: doc.hut_entity || null, hut_in_yield: doc.hut_in_yield !== false, forecast_today_entity: doc.forecast_today_entity || null, forecast_tomorrow_entity: doc.forecast_tomorrow_entity || null };
         showError("");
       } catch (err) {
         return showError("Der Text ist kein gültiges JSON.");
@@ -477,7 +479,7 @@ const Plant = (() => {
       layout = res.layout;
       haOk = res.ha;
     } catch (err) {
-      layout = { areas: [], strings: [], devices: [], yield_entity: null };
+      layout = { areas: [], strings: [], devices: [], yield_entity: null, hut_entity: null, hut_in_yield: true };
       showError(err.message);
     }
     onTab(document.querySelector("#tabs button.active").dataset.tab);

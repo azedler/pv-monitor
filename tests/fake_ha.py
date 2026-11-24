@@ -46,6 +46,7 @@ DAILY_KWH = {
     "sensor.string_a_energy": 24.0,
     "sensor.string_b_energy": 18.0,
     "sensor.pv_total_energy": 60.0,
+    "sensor.hut_energy_total": 0.5,
     "sensor.grid_import_energy": 6.0,
     "sensor.grid_export_energy": 30.0,
     "sensor.battery_charge_energy": 5.0,

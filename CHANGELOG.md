@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.11.5 (24.11.2026)
+
+Payback per build target (Doc 142 §12.8). The whole-plant figures are
+unchanged.
+
+- **"Wirtschaft" has a switch Gesamt | PV-Anlage | Speicher | Hundehütte.**
+  "Gesamt" is the page as before, plus a table "Aufteilung je Bauziel" with a
+  check row: the parts add up to the investment total and to the cumulated
+  revenue. Each build target shows its cost, its benefit so far, payback in
+  percent, "Erlös gegen Investition" and the expected payback (seasonal, once
+  it has 12 months of data; for the storage the storage page's own scenarios).
+  The switch is remembered per device.
+- **How the benefit is split** (an allocation, not a measurement, and the page
+  says so): the storage gets exactly the storage page's monthly benefit; the
+  hut gets the rest of the month's revenue in the share of its own yield in the
+  month's PV yield; the PV plant gets what is left. "Sonstiges" has cost but no
+  benefit and is no view of its own. Posts without a build target count only in
+  "Gesamt" and every view says how many there are.
+- **Hut yield from its meter**: "Einrichtung" takes the hut's energy meter
+  (a total, not a power sensor) and whether the monthly PV yield already
+  contains the hut. "Erfassung" has a field "Ertrag Hundehütte", filled from the
+  meter like the PV yield. The hut view has a button that takes the missing
+  months from Home Assistant's statistics (the meter's change per month, so
+  energy counted during a connection gap is included); values typed by hand
+  are never overwritten.
+- Database: new column `hut_yield` in the monthly values (added on start).
+
 ## 0.11.4 (24.11.2026)
 
 - Investment category **Sonstiges** added next to PV-Anlage, Speicher and

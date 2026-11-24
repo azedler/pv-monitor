@@ -142,6 +142,7 @@ def derive_months(months, tariffs, investments, mode: str = MODE_MONTHLY):
                 "self_use": self_use,
                 "battery_charged": charged,
                 "battery_discharged": discharged,
+                "hut_yield": row.get("hut_yield"),
                 "battery_efficiency": _ratio(discharged, charged),
                 "total_consumption": total,
                 "autarky": _ratio(self_use, total),
@@ -175,36 +176,47 @@ def derive_months(months, tariffs, investments, mode: str = MODE_MONTHLY):
     return out
 
 
-def project_break_even(derived, invest_total: float, max_years: int = 60):
-    """Month in which cumulated revenue reaches the investment.
+def _project_seasonal(history, cost: float, max_years: int = 60):
+    """When the cumulated gain of ``history`` reaches ``cost``.
 
+    ``history`` is a list of ``{"month", "gain", "cum"}`` in month order.
     Seasonal, not linear: every future month earns what the most recent
-    same calendar month really earned.
+    same calendar month really earned. Returns (month, reached, curve) or
+    None; ``curve`` lists (month, cum) for the projected months.
     """
-    real = [d for d in derived if not d["baseline"]]
-    if not real:
+    if not history:
         return None
-    cum = real[-1]["revenue_cum"]
-    for d in real:
-        if d["revenue_cum"] >= invest_total:
-            return {"month": d["month"], "reached": True, "curve": []}
+    for h in history:
+        if h["cum"] >= cost:
+            return h["month"], True, []
     profile = {}
-    for d in real[-12:]:
-        profile[d["month"][5:7]] = d["revenue"]
+    for h in history[-12:]:
+        profile[h["month"][5:7]] = h["gain"]
     if sum(profile.values()) <= 0:
         return None
-    month = real[-1]["month"]
-    curve = []
+    cum, month, curve = history[-1]["cum"], history[-1]["month"], []
     for _ in range(max_years * 12):
         month = month_add(month, 1)
         gain = profile.get(month[5:7])
         if gain is None:
             gain = sum(profile.values()) / len(profile)
         cum += gain
-        curve.append({"month": month, "revenue_cum": cum})
-        if cum >= invest_total:
-            return {"month": month, "reached": False, "curve": curve}
+        curve.append((month, cum))
+        if cum >= cost:
+            return month, False, curve
     return None
+
+
+def project_break_even(derived, invest_total: float, max_years: int = 60):
+    """Month in which cumulated revenue reaches the investment (seasonal)."""
+    real = [d for d in derived if not d["baseline"]]
+    found = _project_seasonal(
+        [{"month": d["month"], "gain": d["revenue"], "cum": d["revenue_cum"]} for d in real], invest_total, max_years
+    )
+    if found is None:
+        return None
+    month, reached, curve = found
+    return {"month": month, "reached": reached, "curve": [{"month": m, "revenue_cum": c} for m, c in curve]}
 
 
 def summarize(derived, investments):
@@ -616,6 +628,115 @@ def investment_categories(investments):
     }
 STORAGE_AGING = 0.015  # loss of usable capacity per year, an assumption shown on the page
 STORAGE_PRICE_GROWTH = (0.0, 0.02, 0.04)
+
+
+# Build targets of the investment list (Doc 142 §12.8). Their order is the
+# order of the switch in "Wirtschaft"; "other" and "none" have no own benefit.
+TARGETS = (("pv", "PV-Anlage"), ("storage", "Speicher"), ("hut", "Hundehütte"))
+TARGET_OF_CATEGORY = {"pv-anlage": "pv", "speicher": "storage", "hundehütte": "hut", "sonstiges": "other"}
+TARGET_NOTE = "Die Aufteilung des Nutzens ist eine Zuordnung, keine Messung."
+MIN_PROJECTION_MONTHS = 12
+
+
+def target_of(investment) -> str:
+    """The build target of one post; any other or missing category is "none"."""
+    return TARGET_OF_CATEGORY.get(category_key(investment.get("category")), "none")
+
+
+def targets_economics(derived, investments, storage, hut_in_yield=True):
+    """Costs and benefit per build target; the parts add up to the whole.
+
+    Benefit per month: the storage gets what the storage page computes for
+    that month; the hut gets the rest of the month's revenue in the share of
+    its own yield in the month's PV yield; the PV plant gets what is left.
+    So every euro of the revenue is counted exactly once.
+    ``hut_in_yield`` says whether the monthly PV yield already contains the
+    hut (then its share is hut / yield, otherwise hut / (yield + hut)).
+    """
+    real = [d for d in derived if not d["baseline"]]
+    storage_month = {m["month"]: m["benefit"] for m in (storage or {}).get("monthly", [])}
+    gains = {"pv": [], "storage": [], "hut": []}
+    hut_months = []
+    for d in real:
+        st = storage_month.get(d["month"], 0.0)
+        rest = d["revenue"] - st
+        hut_kwh = d.get("hut_yield") or 0.0
+        base = d["pv_yield"] if hut_in_yield else d["pv_yield"] + hut_kwh
+        share = min(1.0, max(0.0, hut_kwh / base)) if base > 0 else 0.0
+        hut = rest * share
+        gains["pv"].append((d["month"], rest - hut))
+        gains["storage"].append((d["month"], st))
+        gains["hut"].append((d["month"], hut))
+        if d.get("hut_yield") is not None:
+            hut_months.append({"month": d["month"], "kwh": hut_kwh, "pv_yield": d["pv_yield"], "share": share, "benefit": hut})
+
+    items = {}
+    for i in investments:
+        items.setdefault(target_of(i), []).append(i)
+    first = {
+        "pv": real[0]["month"] if real else None,
+        "storage": (storage or {}).get("install_month"),
+        "hut": next((h["month"] for h in hut_months if h["kwh"] > 0), None),
+    }
+    out_targets = []
+    for key, name in TARGETS:
+        own = items.get(key, [])
+        cost = sum(i["amount"] for i in own)
+        start = first[key]
+        history, cum = [], 0.0
+        for month, gain in gains[key]:
+            cum += gain
+            if start and month >= start:
+                history.append({"month": month, "gain": gain, "cum": cum, "invested": invested_until(own, month)})
+        benefit = cum
+        target = {
+            "key": key,
+            "name": name,
+            "cost": cost,
+            "items": len(own),
+            "benefit_total": benefit,
+            "remaining": cost - benefit,
+            "amortisation": _ratio(benefit, cost) if cost > 0 else None,
+            "since": start,
+            "monthly": history,
+            "break_even": None,
+            "projection_months": len(history),
+        }
+        if key == "storage":
+            # the storage page's own projection, so both pages show one date
+            target["scenarios"] = (storage or {}).get("scenarios", [])
+        elif cost > 0 and len(history) >= MIN_PROJECTION_MONTHS:
+            found = _project_seasonal(history, cost)
+            if found:
+                month, reached, curve = found
+                target["break_even"] = {"month": month, "reached": reached, "curve": [{"month": m, "cum": c} for m, c in curve]}
+        if key == "hut":
+            target["months"] = hut_months
+            target["hut_in_yield"] = bool(hut_in_yield)
+        out_targets.append(target)
+
+    rows = [{"key": t["key"], "name": t["name"], "cost": t["cost"], "items": t["items"], "benefit": t["benefit_total"]} for t in out_targets]
+    for key, name in (("other", "Sonstiges"), ("none", "ohne Bauziel")):
+        own = items.get(key, [])
+        if key == "other" or own:
+            rows.append({"key": key, "name": name, "cost": sum(i["amount"] for i in own), "items": len(own), "benefit": 0.0})
+    invest_total = sum(i["amount"] for i in investments)
+    revenue_total = real[-1]["revenue_cum"] if real else 0.0
+    cost_parts = sum(r["cost"] for r in rows)
+    benefit_parts = sum(r["benefit"] for r in rows)
+    return {
+        "targets": out_targets,
+        "rows": rows,
+        "without_target": len(items.get("none", [])),
+        "note": TARGET_NOTE,
+        "check": {
+            "cost_parts": cost_parts,
+            "cost_total": invest_total,
+            "benefit_parts": benefit_parts,
+            "benefit_total": revenue_total,
+            "ok": abs(cost_parts - invest_total) < 0.005 and abs(benefit_parts - revenue_total) < 0.005,
+        },
+    }
 
 
 def storage_economics(derived, investments, aging=STORAGE_AGING, growth=STORAGE_PRICE_GROWTH, max_years=40):

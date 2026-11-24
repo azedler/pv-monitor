@@ -149,12 +149,116 @@ function drawForecastChart() {
   });
 }
 
+// "Wirtschaft" per build target (Doc 142 §12.8): the whole plant or one part.
+let econTarget = "all";
+try { econTarget = localStorage.getItem("pvm-econ") || "all"; } catch (e) { /* no storage: whole plant */ }
+const ECON_SWITCH = [["all", "Gesamt"], ["pv", "PV-Anlage"], ["storage", "Speicher"], ["hut", "Hundehütte"]];
+
+function econSwitchHtml() {
+  return `<div class="range" role="group" aria-label="Bauziel">${ECON_SWITCH.map(([k, t]) => `<button data-econ="${k}" class="${econTarget === k ? "active" : ""}" aria-pressed="${econTarget === k}">${t}</button>`).join("")}</div>`;
+}
+
+function targetsTableHtml() {
+  const T = state.targets;
+  const c = T.check;
+  return `<h2>Aufteilung je Bauziel <span class="when">${esc(Story.spanShort(state.months.find((m) => !m.baseline).month, state.summary.last_month))}</span></h2>
+    <p class="muted">${esc(T.note)} Der Strom im Speicher kommt von der PV-Anlage; die Hundehütte bekommt den Anteil ihres Ertrags am Monatsertrag, die PV-Anlage den Rest.</p>
+    <div class="scroll"><table class="targets">
+      <thead><tr><th class="text">Bauziel</th><th>Posten</th><th>Kosten</th><th>Nutzen bisher</th><th>Amortisation</th></tr></thead>
+      <tbody>${T.rows.map((r) => `<tr${r.key === "none" ? ' class="no-cat"' : ""}><td class="text">${esc(r.name)}</td><td>${num(r.items)}</td><td>${eur(r.cost)}</td><td>${eur(r.benefit)}</td><td>${r.cost > 0 && r.benefit ? pct(r.benefit / r.cost) : "–"}</td></tr>`).join("")}</tbody>
+      <tfoot><tr><th class="text">Summe der Teile</th><th></th><th>${eur(c.cost_parts)}</th><th>${eur(c.benefit_parts)}</th><th></th></tr>
+        <tr class="${c.ok ? "check-ok" : "check-bad"}"><th class="text">Gesamtrechnung</th><th></th><th>${eur(c.cost_total)}</th><th>${eur(c.benefit_total)}</th><th>${c.ok ? "stimmt überein" : "weicht ab"}</th></tr></tfoot>
+    </table></div>`;
+}
+
+function renderTarget(el) {
+  const T = state.targets;
+  const t = T.targets.find((x) => x.key === econTarget);
+  const last = state.summary.last_month;
+  const span = t.since ? Story.spanShort(t.since, last) : "";
+  const open = T.without_target ? `<p class="cat-missing-note"><b>${T.without_target} Posten ohne Bauziel, Aufteilung unvollständig.</b> Unter <b>Investitionen</b> lässt sich das Bauziel in der Zeile wählen.</p>` : "";
+  let be;
+  if (t.key === "storage") {
+    const sc = t.scenarios || [];
+    be = sc.length
+      ? tile("Amortisation erwartet", sc.map((x) => (x.month ? monthLabel(x.month) : "–")).join(" · "), "bei " + sc.map((x) => pct(x.growth, 0)).join(" / ") + " Preissteigerung im Jahr, wie Seite Speicher")
+      : tile("Amortisation erwartet", "–", "braucht 12 Monate mit Speicher und Kosten");
+  } else if (t.break_even) {
+    be = tile("Amortisation erwartet", monthLabel(t.break_even.month), t.break_even.reached ? "erreicht" : "saisonal fortgeschrieben");
+  } else {
+    be = tile("Amortisation erwartet", "–", t.cost <= 0 ? "keine Kosten zugeordnet" : t.projection_months < 12 ? `erst nach 12 Monaten Daten, bisher ${t.projection_months}` : "nicht absehbar");
+  }
+  let extra = "";
+  if (t.key === "hut") {
+    const meter = state.targets.hut_meter;
+    const missing = state.months.filter((m) => !m.baseline && m.hut_yield == null).length;
+    extra = `<h2>Ertrag der Hundehütte je Monat</h2>
+      <p class="muted">Aus dem Zählerstand der Hütte${meter ? ` (<code>${esc(meter)}</code>)` : ""}; er zählt auch den Ertrag mit, den er nach einer Verbindungslücke nachgeholt hat. ${t.hut_in_yield ? "Der PV-Ertrag enthält die Hütte (Einrichtung)." : "Der PV-Ertrag enthält die Hütte nicht (Einrichtung)."}</p>
+      ${meter ? `<p class="actions"><button class="secondary" id="hut-fill">Fehlende Monate aus Home Assistant übernehmen</button><span class="muted" id="hut-fill-note">${missing ? `${missing} Monate ohne Wert` : ""}</span></p>` : '<p class="cat-missing-note">In der <b>Einrichtung</b> ist noch kein Zähler für die Hundehütte gewählt.</p>'}
+      ${t.months.length ? `<div class="scroll"><table><thead><tr><th>Monat</th><th>Ertrag Hütte</th><th>PV-Ertrag</th><th>Anteil</th><th>Nutzen</th></tr></thead><tbody>${[...t.months].reverse().map((m) => `<tr><td>${monthLabel(m.month)}</td><td>${num(m.kwh, 1)} kWh</td><td>${num(m.pv_yield)} kWh</td><td>${pct(m.share, 2)}</td><td>${eur(m.benefit)}</td></tr>`).join("")}</tbody></table></div>` : ""}`;
+  } else if (t.key === "storage") {
+    extra = '<p class="muted">Nutzen wie auf der Seite <b>Speicher</b>: entladene kWh zum Arbeitspreis, abzüglich der Einspeisevergütung für die geladenen kWh. Dort stehen auch Zyklen und Wirkungsgrad.</p>';
+  }
+  el.innerHTML = `${econSwitchHtml()}
+    <h2>${esc(t.name)}${span ? ` seit Start <span class="when">${esc(span)}</span>` : ""}</h2>
+    <p class="target-note">${esc(T.note)}</p>
+    ${open}
+    <div class="tiles">
+      ${tile("Investition", eur(t.cost), `${t.items} Posten`, "cost")}
+      ${tile("Nutzen bisher", eur(t.benefit_total), null, "gain")}
+      ${tile("Amortisation", t.amortisation == null ? "–" : pct(t.amortisation), t.cost > 0 ? "offen " + eur(Math.max(0, t.remaining), 0) : null, "gain")}
+      ${be}
+    </div>
+    ${t.monthly.length ? `<h2>Erlös gegen Investition <span class="when">${esc(span)}</span></h2><div class="card chart" id="chart-target"></div>` : '<div class="card"><p class="muted">Für dieses Bauziel gibt es noch keine Monate mit Nutzen.</p></div>'}
+    ${extra}`;
+  const fill = $("#hut-fill");
+  if (fill) fill.addEventListener("click", () => run(async () => {
+    fill.disabled = true;
+    const res = await api("POST", "api/hut/fill");
+    state = await api("GET", "api/state");
+    render();
+    const note = $("#hut-fill-note");
+    if (note) note.textContent = `${res.written.length} Monate übernommen` + (res.missing.length ? `, ohne Wert in Home Assistant: ${res.missing.map(monthLabel).join(", ")}` : "");
+  }));
+}
+
+function drawTargetChart() {
+  const t = state.targets && state.targets.targets.find((x) => x.key === econTarget);
+  const box = $("#chart-target");
+  if (!t || !box) return;
+  const future = t.break_even && !t.break_even.reached ? t.break_even.curve : [];
+  const h = t.monthly;
+  Charts.draw(box, {
+    title: `Erlös gegen Investition, ${t.name}`,
+    labels: h.map((m) => monthLabel(m.month)).concat(future.map((f) => monthLabel(f.month))),
+    ticks: (label) => (h.length + future.length > 14 ? (label.startsWith("1/") ? label.slice(2) : null) : label.split("/")[0]),
+    format: (v) => eur(v, 0),
+    series: [
+      { name: "Nutzen kumuliert", type: "line", color: "var(--c-gain)", values: h.map((m) => m.cum).concat(future.map(() => null)) },
+      { name: "Fortschreibung", type: "line", dashed: true, color: "var(--c-gain)", values: h.map((m, i) => (i === h.length - 1 && future.length ? m.cum : null)).concat(future.map((f) => f.cum)) },
+      { name: "Investition", type: "line", color: "var(--c-cost)", values: h.map((m) => m.invested).concat(future.map(() => t.cost)) },
+    ],
+  });
+}
+
+function drawOverviewCharts() {
+  if (econTarget === "all") drawForecastChart();
+  else drawTargetChart();
+}
+
 function renderOverview() {
   const s = state.summary;
   const el = $("#overview");
   if (!s.last_month) {
     el.innerHTML =
       '<div class="card"><p>Noch keine Daten. Unter <b>Erfassung</b> trägst du den ersten Monat ein, unter <b>Tarife</b> und <b>Investitionen</b> den Rest.</p></div>';
+    return;
+  }
+  if (!ECON_SWITCH.some(([k]) => k === econTarget)) econTarget = "all";
+  if (econTarget !== "all" && state.targets) {
+    renderTarget(el);
+    bindEconSwitch(el);
+    if (!el.hidden) drawTargetChart();
     return;
   }
   const r = s.rolling12;
@@ -194,8 +298,21 @@ function renderOverview() {
       ${tile("Effektivpreis", last.effective_price == null ? "–" : nf(4).format(last.effective_price) + " €", "je bezogener kWh", "cost")}
     </div>
     <h2>Prüfung <span class="when">${esc(Story.monthName(last.month))}</span></h2>
-    <div class="card">${checksHtml(state.checks)}</div>`;
+    <div class="card">${checksHtml(state.checks)}</div>
+    ${state.targets ? targetsTableHtml() : ""}`;
+  el.insertAdjacentHTML("afterbegin", econSwitchHtml());
+  bindEconSwitch(el);
   if (!el.hidden) drawForecastChart(); // charts measure their container
+}
+
+function bindEconSwitch(el) {
+  el.querySelectorAll("[data-econ]").forEach((b) =>
+    b.addEventListener("click", () => {
+      econTarget = b.dataset.econ;
+      try { localStorage.setItem("pvm-econ", econTarget); } catch (e) { /* not remembered */ }
+      renderOverview();
+    })
+  );
 }
 
 const MONTH_NAMES = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
@@ -386,6 +503,7 @@ function renderMonths() {
         <label>PV-Ertrag (kWh)<input name="pv_yield" type="number" step="any" inputmode="decimal" required></label>
         <label>Batterie geladen (kWh)<input name="battery_charged" type="number" step="any" inputmode="decimal"></label>
         <label>Batterie entladen (kWh)<input name="battery_discharged" type="number" step="any" inputmode="decimal"></label>
+        <label>Ertrag Hundehütte (kWh)<input name="hut_yield" type="number" step="any" inputmode="decimal"></label>
         <div class="actions"><button class="primary" type="submit">Prüfen</button></div>
       </form>
       <p class="muted">Zählerstand eintragen, nicht die Differenz. Gespeichert wird erst nach der Prüfung.</p>
@@ -418,7 +536,7 @@ function renderMonths() {
   const form = $("#month-form");
   // PV yield and battery values come from Home Assistant; they stay editable
   // and a value typed by hand is never overwritten.
-  const AUTO = { pv_yield: "PV-Ertrag", battery_charged: "Batterie geladen", battery_discharged: "Batterie entladen" };
+  const AUTO = { pv_yield: "PV-Ertrag", battery_charged: "Batterie geladen", battery_discharged: "Batterie entladen", hut_yield: "Ertrag Hundehütte" };
   for (const key of Object.keys(AUTO)) form.elements[key].addEventListener("input", (ev) => delete ev.target.dataset.auto);
   const suggest = async () => {
     const month = form.elements.month.value;
@@ -464,7 +582,7 @@ function renderMonths() {
   el.querySelectorAll("[data-edit-month]").forEach((btn) =>
     btn.addEventListener("click", () => {
       const m = state.months.find((x) => x.month === btn.dataset.editMonth);
-      for (const key of ["month", "reading_date", "grid_reading", "feed_reading", "heat_reading", "pv_yield", "battery_charged", "battery_discharged"]) {
+      for (const key of ["month", "reading_date", "grid_reading", "feed_reading", "heat_reading", "pv_yield", "battery_charged", "battery_discharged", "hut_yield"]) {
         if (form.elements[key]) form.elements[key].value = m[key] ?? "";
       }
       $("#month-confirm").innerHTML = "";
@@ -766,7 +884,7 @@ document.querySelectorAll("#tabs button").forEach((btn) =>
     document.querySelectorAll("main > section").forEach((s) => (s.hidden = s.id !== btn.dataset.tab));
     // charts measure their container, so they are drawn once it is visible
     if (state && chartsVisible()) renderCharts();
-    if (state && btn.dataset.tab === "overview") drawForecastChart();
+    if (state && btn.dataset.tab === "overview") drawOverviewCharts();
     Plant.onTab(btn.dataset.tab);
   })
 );
@@ -782,6 +900,6 @@ window.addEventListener("resize", () => {
   resizeTimer = setTimeout(() => {
     if (!state) return;
     if (chartsVisible()) renderCharts();
-    if (!$("#overview").hidden) drawForecastChart();
+    if (!$("#overview").hidden) drawOverviewCharts();
   }, 150);
 });

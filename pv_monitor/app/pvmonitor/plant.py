@@ -16,7 +16,7 @@ ENTITY = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
 IDENT = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 KINDS = ("grid", "battery", "consumer")
 FORECAST_KEYS = ("forecast_today_entity", "forecast_tomorrow_entity")
-EMPTY = {"areas": [], "strings": [], "devices": [], "yield_entity": None, **dict.fromkeys(FORECAST_KEYS)}
+EMPTY = {"areas": [], "strings": [], "devices": [], "yield_entity": None, "hut_entity": None, "hut_in_yield": True, **dict.fromkeys(FORECAST_KEYS)}
 MAX_ITEMS = 60
 MAX_SIDE = 40
 
@@ -155,6 +155,10 @@ def validate_layout(doc):
         "devices": devices,
         # the inverter's yield meter, for the monthly PV yield
         "yield_entity": _entity(doc, "yield_entity"),
+        # the hut's own yield meter, for its share in "Wirtschaft" (Doc 142 §12.8)
+        "hut_entity": _entity(doc, "hut_entity"),
+        # whether the monthly PV yield already contains the hut
+        "hut_in_yield": doc.get("hut_in_yield", True) is not False,
         # the yield forecast for today and tomorrow, in kWh
         **{key: _entity(doc, key) for key in FORECAST_KEYS},
     }
@@ -302,6 +306,7 @@ def month_sources(layout):
         "pv_yield": pv,
         "battery_charged": [e for e in [battery.get("energy_entity")] if e],
         "battery_discharged": [e for e in [battery.get("energy_entity_2")] if e],
+        "hut_yield": [e for e in [layout.get("hut_entity")] if e],
     }
 
 

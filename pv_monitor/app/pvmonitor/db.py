@@ -92,6 +92,7 @@ ADDED_COLUMNS = (
     ("tariffs", "monthly_payment", "REAL"),
     ("tariffs", "rate_to_10", "REAL"),
     ("tariffs", "rate_10_40", "REAL"),
+    ("monthly_values", "hut_yield", "REAL"),
 )
 
 
@@ -153,6 +154,22 @@ def meter_for(con, kind, create_label=None):
     return insert(con, "meters", ("label", "kind"), {"label": create_label, "kind": kind})
 
 
+def fill_hut_yields(con, values):
+    """Store the hut's yield for months that have none yet; never overwrite.
+
+    ``values`` maps month -> kWh. Only months that are already captured get a
+    value. Returns the months written.
+    """
+    written = []
+    for month, kwh in sorted(values.items()):
+        cur = con.execute(
+            "UPDATE monthly_values SET hut_yield = ? WHERE month = ? AND hut_yield IS NULL", (kwh, month)
+        )
+        if cur.rowcount:
+            written.append(month)
+    return written
+
+
 def ensure_default_meters(con):
     for label, kind in DEFAULT_METERS:
         meter_for(con, kind, create_label=label)
@@ -176,16 +193,17 @@ def month_rows(con):
 def save_month(con, month, data, source="manual"):
     con.execute(
         "INSERT INTO monthly_values (month, reading_date, pv_yield, battery_charged, "
-        "battery_discharged) VALUES (?, ?, ?, ?, ?) ON CONFLICT(month) DO UPDATE SET "
+        "battery_discharged, hut_yield) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(month) DO UPDATE SET "
         "reading_date = excluded.reading_date, pv_yield = excluded.pv_yield, "
         "battery_charged = excluded.battery_charged, "
-        "battery_discharged = excluded.battery_discharged",
+        "battery_discharged = excluded.battery_discharged, hut_yield = excluded.hut_yield",
         (
             month,
             data.get("reading_date"),
             data.get("pv_yield"),
             data.get("battery_charged"),
             data.get("battery_discharged"),
+            data.get("hut_yield"),
         ),
     )
     labels = {"grid": "Hausstrom", "feed_in": "Einspeisung", "heat": "Wärmestrom"}

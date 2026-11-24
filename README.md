@@ -39,6 +39,7 @@ python tests/test_migration.py
 python tests/test_publish.py
 python tests/test_cache.py
 python tests/test_investment_categories.py
+python tests/test_targets.py
 ```
 
 Captured values (readings, monthly values, tariffs, investments) are stored;

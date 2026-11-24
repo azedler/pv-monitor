@@ -145,6 +145,7 @@ def clean_month(data):
         "pv_yield": _number(data, "pv_yield", required=True),
         "battery_charged": _number(data, "battery_charged"),
         "battery_discharged": _number(data, "battery_discharged"),
+        "hut_yield": _number(data, "hut_yield"),
     }
 
 
@@ -168,6 +169,10 @@ def build_state(con, candidate=None):
             t["energy_price"] = calc.feed_in_mix(t["rate_to_10"], t["rate_10_40"], kwp)
     derived = calc.derive_months(months, tariffs, investments, mode)
     summary = calc.summarize(derived, investments)
+    storage = calc.storage_economics(derived, investments)
+    layout = load_layout(con)
+    targets = calc.targets_economics(derived, investments, storage, layout.get("hut_in_yield", True))
+    targets["hut_meter"] = layout.get("hut_entity")
     last = derived[-1]["month"] if derived else None
     return {
         "settings": {"tariff_mode": mode, "plant_kwp": kwp, "eeg_date": db.get_setting(con, "eeg_date") or None},
@@ -179,7 +184,8 @@ def build_state(con, candidate=None):
         "next_month": calc.month_add(last, 1) if last else calc.month_add(calc.today_month(), -1),
         "forecast": calc.forecast_billing(derived, tariffs, _today()),
         "periods": calc.periods(derived),
-        "storage": calc.storage_economics(derived, investments),
+        "storage": storage,
+        "targets": targets,
         "investment_categories": calc.investment_categories(investments),
         "checks": calc.check_month(derived, summary["last_month"]) if summary["last_month"] else [],
     }
@@ -490,6 +496,40 @@ async def month_suggest(request):
     return {"month": month, "values": values, "complete": end.isoformat() <= datetime.now(start.tzinfo).isoformat()}
 
 
+async def hut_fill(request):
+    """Take the hut's monthly yield from its meter's statistics (Doc 142 §12.8).
+
+    Only months that are captured and have no hut value yet are filled; a
+    value typed by hand is never overwritten. The meter's change per month
+    also holds energy it counted while its connection was down.
+    """
+    layout = _layout()
+    entity = layout.get("hut_entity")
+    if not entity:
+        raise plant.Invalid("In der Einrichtung ist kein Zähler für die Hundehütte gewählt")
+    with closing(db.connect(db_path())) as con:
+        # the first month only anchors the meter readings and has no yield of its own
+        months = [m["month"] for m in db.month_rows(con)[1:] if m.get("hut_yield") is None]
+    if not months:
+        return {"written": [], "missing": []}
+    tz = await ha.time_zone()
+    start, _ = plant.period_range("month", f"{months[0]}-01", tz)
+    _, end = plant.period_range("month", f"{months[-1]}-01", tz)
+    rows = (await ha.statistics([entity], start.isoformat(), end.isoformat(), "month")).get(entity, [])
+    zone = plant.zone(tz)
+    values = {}
+    for row in rows:
+        energy = ha.row_energy_kwh(row)
+        # the bucket's middle names its month even if a boundary is off by an hour (summer time)
+        month = datetime.fromtimestamp((row["start"] + row["end"]) / 2000, zone).strftime("%Y-%m")
+        if energy is not None and month in months:
+            values[month] = round(energy, 1)
+    with closing(db.connect(db_path())) as con:
+        written = db.fill_hut_yields(con, values)
+        con.commit()
+    return {"written": written, "missing": [m for m in months if m not in values]}
+
+
 # ------------------------------------------------------------------ page
 
 # Script and style references in index.html; each gets ?v=<asset version>.
@@ -541,6 +581,7 @@ routes = [
     Route("/api/months/{month}", endpoint(delete_month), methods=["DELETE"]),
     Route("/api/months/{month}/check", endpoint(check_month), methods=["POST"]),
     Route("/api/settings", endpoint(save_settings), methods=["PUT"]),
+    Route("/api/hut/fill", ha_endpoint(hut_fill), methods=["POST"]),
     Mount("/", StaticFiles(directory=STATIC, html=True)),
 ]
 

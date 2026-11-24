@@ -54,7 +54,7 @@ def near(a, b, tol=1e-6):
 
 def test_layout(c):
     empty = c.get("/api/plant/layout").json()
-    assert empty == {"layout": {"areas": [], "strings": [], "devices": [], "yield_entity": None, "forecast_today_entity": None, "forecast_tomorrow_entity": None}, "ha": True}
+    assert empty == {"layout": {"areas": [], "strings": [], "devices": [], "yield_entity": None, "hut_entity": None, "hut_in_yield": True, "forecast_today_entity": None, "forecast_tomorrow_entity": None}, "ha": True}
     saved = c.put("/api/plant/layout", json=LAYOUT)
     assert saved.status_code == 200, saved.text
     layout = c.get("/api/plant/layout").json()["layout"]
