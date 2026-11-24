@@ -180,6 +180,7 @@ def build_state(con, candidate=None):
         "forecast": calc.forecast_billing(derived, tariffs, _today()),
         "periods": calc.periods(derived),
         "storage": calc.storage_economics(derived, investments),
+        "investment_categories": calc.investment_categories(investments),
         "checks": calc.check_month(derived, summary["last_month"]) if summary["last_month"] else [],
     }
 
@@ -225,6 +226,15 @@ def update_investment(con, request, body):
     if not db.update(
         con, "investments", db.INVESTMENT_FIELDS, request.path_params["id"], clean_investment(body)
     ):
+        raise LookupError
+
+
+def set_investment_category(con, request, body):
+    """Change only the category of one post (the list's inline field)."""
+    if "category" not in body:
+        raise Invalid("„category“ fehlt")
+    data = {"category": _text(body, "category")}
+    if not db.update(con, "investments", ("category",), request.path_params["id"], data):
         raise LookupError
 
 
@@ -522,6 +532,7 @@ routes = [
     Route("/api/investments", endpoint(create_investment), methods=["POST"]),
     Route("/api/investments/{id:int}", endpoint(update_investment), methods=["PUT"]),
     Route("/api/investments/{id:int}", endpoint(delete_row("investments")), methods=["DELETE"]),
+    Route("/api/investments/{id:int}/category", endpoint(set_investment_category), methods=["PUT"]),
     Route("/api/tariffs", endpoint(create_tariff), methods=["POST"]),
     Route("/api/tariffs/{id:int}", endpoint(update_tariff), methods=["PUT"]),
     Route("/api/tariffs/{id:int}", endpoint(delete_row("tariffs")), methods=["DELETE"]),

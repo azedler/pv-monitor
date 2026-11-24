@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.11.2 (24.11.2026)
+
+Wide tables and categories in the investment list (Doc 142 §12.3 B1, B3). No
+change to stored data or to how figures are computed.
+
+- **Wide tables**: every table scrolls sideways inside its own box, never the
+  page; the first column stays in place. A fade at the edge shows that there
+  are more columns (scroll bars are hidden on tablets and Macs). The monthly
+  table ("Erfassung") also scrolls vertically inside its box with a fixed
+  header, so its sideways scroll bar is on screen instead of below 30 rows.
+  Headers are written out ("Eigenverbrauchsquote", "Batterie-Wirkungsgrad",
+  "Erlös kumuliert").
+- **Investments**: a column "Kategorie" with a choice field in each row. A
+  change is saved at once for that post only (just the category) and the row
+  says "gespeichert"; if saving fails, the old value stays and the row shows
+  why. Posts without a category are marked and counted above the list. Below
+  the list: the sum per category; the sum "Speicher" is the cost the storage
+  page uses. Offered categories: Module, Wechselrichter, Speicher,
+  Montage/Elektro, Wallbox, Hütte, Sonstiges, plus every category already in
+  the data (nothing is renamed). The form keeps free text with these as
+  suggestions.
+- New API: `PUT api/investments/<id>/category` with `{"category": ...}`.
+
 ## 0.11.1 (24.11.2026)
 
 Cache protection after updates (Doc 142 §11.1). No change to data, figures or

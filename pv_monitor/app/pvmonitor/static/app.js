@@ -393,11 +393,11 @@ function renderMonths() {
       <div id="month-confirm"></div>
     </div>
     <h2>Monatswerte</h2>
-    <div class="scroll"><table>
+    <div class="scroll tall"><table>
       <thead><tr>
         <th>Monat</th><th>PV-Ertrag</th><th>Einspeisung</th><th>Eigennutzung</th><th>Netzbezug</th>
-        <th>Verbrauch</th><th>Autarkie</th><th>Eigenverbr.</th><th>Batterie</th><th>Arbeitspreis</th>
-        <th>Erlös</th><th>kumuliert</th><th>Amortisation</th><th>Effektivpreis</th><th></th>
+        <th>Verbrauch</th><th>Autarkie</th><th>Eigenverbrauchsquote</th><th>Batterie-Wirkungsgrad</th><th>Arbeitspreis</th>
+        <th>Erlös</th><th>Erlös kumuliert</th><th>Amortisation</th><th>Effektivpreis</th><th></th>
       </tr></thead>
       <tbody>${rows
         .map((m) =>
@@ -621,20 +621,42 @@ function renderTariffs() {
   });
 }
 
+const catKey = (c) => (c || "").trim().toLowerCase(); // same rule as calc.category_key
+
+function categorySelect(x, options) {
+  const key = catKey(x.category);
+  const known = options.some((o) => catKey(o) === key);
+  const opts = [`<option value=""${key ? "" : " selected"}>ohne Kategorie</option>`]
+    .concat(options.map((o) => `<option value="${esc(o)}"${key && catKey(o) === key ? " selected" : ""}>${esc(o)}</option>`))
+    .concat(key && !known ? [`<option value="${esc(x.category)}" selected>${esc(x.category)}</option>`] : []);
+  return `<select class="cat${key ? "" : " missing"}" data-cat-inv="${x.id}" aria-label="Kategorie von ${esc(x.label)}">${opts.join("")}</select>`;
+}
+
 function renderInvestments() {
   const el = $("#investments");
   const i = editing.investment || {};
+  const cats = state.investment_categories || { options: [], totals: [], uncategorized: 0, total: 0 };
   el.innerHTML = `
     <h2>Investitionen: ${eur(state.summary.invest_total)}</h2>
-    <div class="scroll"><table>
-      <thead><tr><th>Datum</th><th>Anzahl</th><th class="text">Posten</th><th>Betrag</th><th></th></tr></thead>
+    ${cats.uncategorized ? `<p class="cat-missing-note"><b>${cats.uncategorized} Posten ohne Kategorie.</b> Die Kategorie lässt sich direkt in der Zeile wählen und wird sofort gespeichert.</p>` : ""}
+    <div class="scroll"><table class="inv">
+      <thead><tr><th>Datum</th><th>Anzahl</th><th class="text">Posten</th><th class="text">Kategorie</th><th>Betrag</th><th></th></tr></thead>
       <tbody>${state.investments
         .map(
-          (x) => `<tr><td>${dateLabel(x.date)}</td><td>${num(x.quantity)}</td><td class="text">${esc(x.label)}</td>
+          (x) => `<tr data-inv-row="${x.id}"${catKey(x.category) ? "" : ' class="no-cat"'}><td>${dateLabel(x.date)}</td><td>${num(x.quantity)}</td><td class="text">${esc(x.label)}</td>
+          <td class="text cat-cell">${categorySelect(x, cats.options)}<span class="row-status" role="status"></span></td>
           <td class="${x.amount < 0 ? "neg" : ""}">${eur(x.amount)}</td>
           <td><button class="link" data-edit-inv="${x.id}">ändern</button><button class="link danger" data-del-inv="${x.id}">löschen</button></td></tr>`
         )
         .join("")}</tbody>
+    </table></div>
+    <h3>Summe je Kategorie</h3>
+    <div class="scroll"><table class="cat-totals">
+      <thead><tr><th class="text">Kategorie</th><th>Posten</th><th>Summe</th></tr></thead>
+      <tbody>${cats.totals
+        .map((t) => `<tr${t.category ? "" : ' class="no-cat"'}><td class="text">${t.category ? esc(t.category) : "ohne Kategorie"}${catKey(t.category) === "speicher" ? ' <span class="muted">· zählt auf der Seite Speicher</span>' : ""}</td><td>${num(t.items)}</td><td class="${t.total < 0 ? "neg" : ""}">${eur(t.total)}</td></tr>`)
+        .join("")}</tbody>
+      <tfoot><tr><th class="text">Gesamt</th><th>${num(state.investments.length)}</th><th>${eur(cats.total)}</th></tr></tfoot>
     </table></div>
     <p class="muted">Ein Posten ohne Datum zählt von Anfang an. Mit Datum verändert er die Amortisation erst ab diesem Monat. Verkäufe als negativen Betrag eintragen.</p>
     <h2>${i.id ? "Posten ändern" : "Neuer Posten"}</h2>
@@ -643,9 +665,35 @@ function renderInvestments() {
       <label>Anzahl<input name="quantity" type="number" step="any" inputmode="decimal" value="${i.quantity ?? ""}"></label>
       <label>Posten<input name="label" required value="${esc(i.label || "")}"></label>
       <label>Betrag €<input name="amount" type="number" step="any" inputmode="decimal" required value="${i.amount ?? ""}"></label>
-      <label>Kategorie<input name="category" value="${esc(i.category || "")}"></label>
+      <label>Kategorie<input name="category" list="inv-cats" value="${esc(i.category || "")}"></label>
+      <datalist id="inv-cats">${cats.options.map((o) => `<option value="${esc(o)}"></option>`).join("")}</datalist>
       <div class="actions"><button class="primary" type="submit">Speichern</button>${i.id ? '<button class="secondary" type="button" id="inv-cancel">Abbrechen</button>' : ""}</div>
     </form></div>`;
+  el.querySelectorAll("[data-cat-inv]").forEach((sel) => {
+    const before = sel.value;
+    sel.addEventListener("change", async () => {
+      const id = Number(sel.dataset.catInv);
+      const status = sel.parentElement.querySelector(".row-status");
+      sel.disabled = true;
+      status.textContent = "speichert …";
+      status.className = "row-status";
+      try {
+        state = await api("PUT", `api/investments/${id}/category`, { category: sel.value || null });
+        render();
+        const row = $(`#investments [data-inv-row="${id}"] .row-status`);
+        if (row) {
+          row.textContent = "gespeichert";
+          row.className = "row-status ok";
+          setTimeout(() => { if (row.isConnected) row.textContent = ""; }, 2500);
+        }
+      } catch (err) {
+        sel.value = before; // the stored value stays
+        sel.disabled = false;
+        status.textContent = `nicht gespeichert: ${err.message}`;
+        status.className = "row-status err";
+      }
+    });
+  });
   $("#inv-form").addEventListener("submit", (ev) => {
     ev.preventDefault();
     run(async () => {
@@ -678,6 +726,30 @@ function renderInvestments() {
 function chartsVisible() {
   return !$("#charts").hidden;
 }
+
+// Wide tables scroll inside their own box. Scroll bars are hidden on tablets
+// and Macs, so a fade at the edge shows that there is more to the side.
+function edgeHint(box) {
+  if (box.dataset.edge) return;
+  box.dataset.edge = "1";
+  const frame = document.createElement("div");
+  frame.className = "scroll-frame";
+  box.replaceWith(frame);
+  frame.appendChild(box);
+  const update = () => {
+    const first = box.querySelector("th:first-child, td:first-child");
+    frame.style.setProperty("--sticky-w", `${first ? first.offsetWidth : 0}px`);
+    const max = box.scrollWidth - box.clientWidth;
+    frame.classList.toggle("more-right", max > 1 && box.scrollLeft < max - 1);
+    frame.classList.toggle("more-left", box.scrollLeft > 1);
+  };
+  box.addEventListener("scroll", update, { passive: true });
+  new ResizeObserver(update).observe(box);
+  update();
+}
+
+new MutationObserver(() => document.querySelectorAll("main .scroll:not([data-edge])").forEach(edgeHint))
+  .observe(document.querySelector("main"), { childList: true, subtree: true });
 
 function render() {
   Story.render();

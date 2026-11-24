@@ -179,6 +179,29 @@ th { color: var(--muted); font-weight: 500; background: var(--card); }
 /* the pinned first column must stay above the other pinned header cells */
 .scroll td:first-child { z-index: 1; }
 .scroll th:first-child { z-index: 2; }
+/* wide tables: own scroll box, fade at the edge while there is more (B1) */
+.scroll-frame { position: relative; }
+.scroll-frame::before, .scroll-frame::after {
+  content: ""; position: absolute; top: 1px; bottom: 1px; width: 44px; pointer-events: none; z-index: 4;
+  opacity: 0; transition: opacity .15s;
+}
+.scroll-frame::after { right: 1px; border-radius: 0 21px 21px 0; background: linear-gradient(to left, color-mix(in oklab, var(--text) 16%, transparent), transparent); }
+.scroll-frame::before { left: calc(var(--sticky-w, 0px) + 1px); background: linear-gradient(to right, color-mix(in oklab, var(--text) 12%, transparent), transparent); }
+.scroll-frame.more-right::after, .scroll-frame.more-left::before { opacity: 1; }
+.scroll.tall { max-height: max(420px, calc(100vh - 180px)); overflow: auto; }
+.scroll.tall thead th { position: sticky; top: 0; z-index: 2; }
+.scroll.tall thead th:first-child { z-index: 3; }
+/* investments: category per row (B3) */
+select.cat { min-height: 44px; min-width: 190px; }
+select.cat.missing { border-color: var(--warn); color: var(--warn); }
+tr.no-cat td { background: color-mix(in oklab, var(--warn-bg) 55%, transparent); }
+.scroll tr.no-cat td:first-child { background: linear-gradient(color-mix(in oklab, var(--warn-bg) 55%, transparent), color-mix(in oklab, var(--warn-bg) 55%, transparent)), var(--card); }
+.cat-cell { white-space: nowrap; }
+.row-status { display: inline-block; min-width: 0; margin-left: 10px; font-size: .85rem; color: var(--muted); }
+.row-status.ok { color: var(--c-gain); }
+.row-status.err { color: var(--warn); white-space: normal; }
+.cat-missing-note { margin: 0 0 12px; padding: 12px 16px; border-radius: 14px; background: var(--warn-bg); color: var(--warn); }
+table.cat-totals tfoot th { color: var(--text); font-weight: 600; border-bottom: 0; }
 td.text, th.text { text-align: left; white-space: normal; min-width: 160px; }
 tr:last-child td, tr:last-child th { border-bottom: 0; }
 tr.pre td, tr.pre th { background-image: linear-gradient(var(--band), var(--band)); }

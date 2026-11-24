@@ -577,6 +577,42 @@ def periods(derived):
 
 
 STORAGE_CATEGORY = "speicher"
+# Offered in the investment list; categories already in the data stay valid too.
+INVESTMENT_CATEGORIES = ("Module", "Wechselrichter", "Speicher", "Montage/Elektro", "Wallbox", "Hütte", "Sonstiges")
+
+
+def category_key(name):
+    """One comparison for categories everywhere: trimmed, lower case (no casefold, it turns ß into ss)."""
+    return (name or "").strip().lower()
+
+
+def investment_categories(investments):
+    """Choices for the category field and the total per category.
+
+    The same key as the storage page decides which posts belong together, so
+    the total shown for "Speicher" is the cost the storage page uses.
+    """
+    names = {}
+    for name in INVESTMENT_CATEGORIES:
+        names[category_key(name)] = name
+    for i in investments:
+        key = category_key(i.get("category"))
+        if key and key not in names:
+            names[key] = i["category"].strip()
+    totals = {}
+    for i in investments:
+        key = category_key(i.get("category"))
+        row = totals.setdefault(key, {"category": names.get(key) if key else None, "total": 0.0, "items": 0})
+        row["total"] += i["amount"]
+        row["items"] += 1
+    order = list(names)
+    rows = sorted(totals.items(), key=lambda kv: (kv[0] == "", order.index(kv[0]) if kv[0] in order else len(order)))
+    return {
+        "options": list(names.values()),
+        "totals": [row for _, row in rows],
+        "uncategorized": totals.get("", {"items": 0})["items"],
+        "total": sum(i["amount"] for i in investments),
+    }
 STORAGE_AGING = 0.015  # loss of usable capacity per year, an assumption shown on the page
 STORAGE_PRICE_GROWTH = (0.0, 0.02, 0.04)
 
@@ -591,7 +627,7 @@ def storage_economics(derived, investments, aging=STORAGE_AGING, growth=STORAGE_
     with the energy price rising by each rate in ``growth``.
     """
     real = [d for d in derived if not d["baseline"]]
-    items = [i for i in investments if (i.get("category") or "").strip().lower() == STORAGE_CATEGORY]
+    items = [i for i in investments if category_key(i.get("category")) == STORAGE_CATEGORY]
     cost = sum(i["amount"] for i in items)
     dated = sorted(i["date"][:7] for i in items if i.get("date"))
     with_battery = [d for d in real if d["battery_charged"]]
