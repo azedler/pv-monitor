@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -16,7 +17,7 @@ from pathlib import Path
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -479,7 +480,38 @@ async def month_suggest(request):
     return {"month": month, "values": values, "complete": end.isoformat() <= datetime.now(start.tzinfo).isoformat()}
 
 
+# ------------------------------------------------------------------ page
+
+# Script and style references in index.html; each gets ?v=<asset version>.
+ASSET_REF = re.compile(r'(<(?:script|link)\b[^>]*\b(?:src|href)=")([\w.-]+\.(?:js|css))(")')
+
+
+def asset_version() -> str:
+    """The add-on version; without one (development) a hash of the files."""
+    v = publish.version()
+    if v != "dev":
+        return v
+    digest = hashlib.sha1()
+    for path in sorted(STATIC.glob("*.js")) + sorted(STATIC.glob("*.css")):
+        digest.update(path.read_bytes())
+    return "dev-" + digest.hexdigest()[:8]
+
+
+def index_html() -> str:
+    v = asset_version()
+    page = (STATIC / "index.html").read_text(encoding="utf-8")
+    return ASSET_REF.sub(lambda m: f"{m.group(1)}{m.group(2)}?v={v}{m.group(3)}", page)
+
+
+async def index(request):
+    # After an update the browser must ask again for the page, which then
+    # names the new script and style addresses (no mixed old/new state).
+    return HTMLResponse(index_html(), headers={"Cache-Control": "no-cache"})
+
+
 routes = [
+    Route("/", index),
+    Route("/index.html", index),
     Route("/api/months/{month}/suggest", ha_endpoint(month_suggest)),
     Route("/api/plant/layout", get_layout),
     Route("/api/plant/layout", put_layout, methods=["PUT"]),

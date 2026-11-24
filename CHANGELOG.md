@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.1 (24.11.2026)
+
+Cache protection after updates (Doc 142 §11.1). No change to data, figures or
+the roof card.
+
+- The page (`index.html`) is sent with `Cache-Control: no-cache`, so the
+  browser asks for it again on every load.
+- The page names every script and style sheet with the add-on version
+  (`app.js?v=0.11.1` …). After an update the browser therefore fetches the new
+  files instead of running cached ones; a mix of new page and old scripts (which
+  leaves pages empty) can no longer happen.
+- Once only: a browser that still holds the page of 0.9.2 or 0.10.0/0.11.0 may
+  keep it until its cache is cleared one more time (F12 → right-click on reload →
+  "Empty cache and hard reload", or delete the site data of Home Assistant).
+  From 0.11.1 on this is not needed after updates.
+
 ## 0.11.0 (24.11.2026)
 
 Roof card for Home Assistant dashboards (Doc 143). The add-on's own pages and
