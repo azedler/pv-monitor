@@ -141,7 +141,7 @@ const Plant = (() => {
     svg += `<g class="node"><circle cx="200" cy="34" r="27"/><text class="icon" x="200" y="34" dy="0.36em" text-anchor="middle">☀️</text><text class="val" x="236" y="31" >${esc(amount(data.pv))}</text><text class="sub" x="236" y="46">PV-Erzeugung</text></g>`;
     svg += node(200, 128, "🏠", amount(data.house), [live() ? "Verbrauch jetzt" : "Verbrauch"]);
     if (g) {
-      svg += line(100, 128, 172, 128, g.net, g.net > 0 ? "cost" : "sun"); // bought power is red, fed-in sun is yellow
+      svg += line(100, 128, 172, 128, g.net, g.net > 0 ? "grid" : "sun"); // drawn from the grid is blue, fed-in sun is amber
       // history shows both directions; a net figure would hide the exchange
       const lines = live()
         ? [g.net == null ? "Netz" : g.net > idle ? "Netzbezug" : g.net < -idle ? "Einspeisung" : "Netz"]
@@ -149,7 +149,7 @@ const Plant = (() => {
       svg += node(72, 128, "⚡", live() ? power(g.net == null ? null : Math.abs(g.net)) : energy(g.in), lines);
     }
     if (b) {
-      svg += line(228, 128, 300, 128, b.net, "neutral"); // positive = charging = towards the battery
+      svg += line(228, 128, 300, 128, b.net, "store"); // positive = charging = towards the battery
       const lines = live()
         ? [(b.net == null ? "Batterie" : b.net > idle ? "lädt" : b.net < -idle ? "entlädt" : "ruht") + (b.soc != null ? ` · ${nf(0).format(b.soc)} %` : "")]
         : ["geladen", `entladen ${energy(b.out)}`];
@@ -204,7 +204,10 @@ const Plant = (() => {
     const tabs = [["live", "Live"], ["day", "Tag"], ["month", "Monat"], ["year", "Jahr"]]
       .map(([m, t]) => `<button data-mode="${m}" class="${mode === m ? "active" : ""}">${t}</button>`)
       .join("");
-    let html = `<div class="range" role="group" aria-label="Ansicht">${tabs}</div>`;
+    const when = live() ? "Jetzt · alle 5 Sekunden neu" : periodLabel();
+    let html = `<div class="pagehead"><div class="lead"><h1>Die Anlage</h1><div class="plaque-row"><span class="plaque">${esc(when)}</span>
+      <span class="covers">${live() ? "Leistung je String und Energiefluss in diesem Moment" : "Energie je String und Gerät im gewählten Zeitraum"}</span></div></div>
+      <div class="range" role="group" aria-label="Ansicht">${tabs}</div></div>`;
     if (!live())
       html += `<div class="datenav"><button data-nav="-1" aria-label="zurück">‹</button><span>${esc(periodLabel())}</span><button data-nav="1" aria-label="weiter" ${shift(mode, date, 1) > isoDay(new Date()) ? "disabled" : ""}>›</button></div>`;
     if (!layout.areas.length || !layout.strings.length) {

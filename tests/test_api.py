@@ -35,8 +35,15 @@ def main():
     empty = c.get("/api/state").json()
     assert empty["months"] == [] and empty["summary"]["last_month"] is None
     assert c.get("/").status_code == 200 and "PV Monitor" in c.get("/").text
-    for script in ("app.js", "charts.js", "plant.js", "style.css"):
+    for script in ("app.js", "charts.js", "plant.js", "story.js", "style.css"):
         assert script in c.get("/").text and c.get(f"/{script}").status_code == 200, script
+    # fonts ship with the add-on; the page names no outside host at all
+    css = c.get("/style.css").text
+    for font in ("fonts/inter.woff2", "fonts/space-grotesk.woff2"):
+        assert font in css and c.get(f"/{font}").status_code == 200, font
+    for path in ("/", "/style.css", "/app.js", "/story.js", "/plant.js", "/charts.js"):
+        body = c.get(path).text
+        assert "http://" not in body.replace("http://www.w3.org", "") and "https://" not in body, path
 
     con = db.connect(os.environ["PVMON_DB"])
     fx.fill(con)
@@ -130,6 +137,11 @@ def main():
     grid_t = next(t for t in state["tariffs"] if t["kind"] == "grid")
     assert c.put(f"/api/tariffs/{grid_t['id']}", json=dict(grid_t, rate_to_10=0.08, rate_10_40=0.07)).status_code == 400
     assert c.put("/api/settings", json={}).status_code == 400 and c.put("/api/settings", json={"plant_kwp": -1}).status_code == 400
+    state = c.put("/api/settings", json={"eeg_date": "2024-12-06"}).json()
+    assert state["settings"]["eeg_date"] == "2024-12-06"
+    assert c.put("/api/settings", json={"eeg_date": "6.12.2024"}).status_code == 400
+    assert c.put("/api/settings", json={"eeg_date": None}).json()["settings"]["eeg_date"] is None
+    assert [p["key"] for p in state["periods"]][0] == "last12" and state["storage"]["cost"] == 0
     c.put(f"/api/tariffs/{feed['id']}", json=feed)
     c.put("/api/settings", json={"plant_kwp": None})
 

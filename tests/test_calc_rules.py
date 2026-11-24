@@ -225,6 +225,64 @@ def test_feed_in_mix():
     assert near(calc.feed_in_mix(0.08, 0.07, 55.0), (10 * 0.08 + 30 * 0.07) / 40)  # capped at 40 kWp
 
 
+def test_periods_and_shares():
+    months, tariffs, investments = load()
+    derived = calc.derive_months(months, tariffs, investments, "monthly")
+    ps = {p["key"]: p for p in calc.periods(derived)}
+    assert list(ps) == ["last12", "y2023", "y2024", "y2025", "all"], list(ps)
+    assert ps["last12"]["span"] == "Dezember 2024 – November 2025" and ps["last12"]["months"] == 12
+    assert ps["y2023"]["label"] == "2023 ab Nov." and ps["y2024"]["label"] == "2024"
+    assert ps["y2025"]["label"] == "2025 bisher" and ps["y2025"]["span"] == "Januar 2025 – November 2025"
+    assert ps["all"]["months"] == fx.MONTH_COUNT - 1  # the baseline month only anchors the meters
+    y = ps["y2024"]
+    rows = [d for d in derived if d["month"].startswith("2024")]
+    assert near(y["pv_yield"], sum(r["pv_yield"] for r in rows))
+    assert near(y["grid_kwh"], sum(r["grid_kwh"] + r["heat_kwh"] for r in rows))
+    assert near(y["revenue"], sum(r["revenue"] for r in rows), 1e-6)
+    assert near(y["autarky"], y["self_use"] / (y["self_use"] + y["grid_kwh"]))
+    # 2024-11/12 have a battery: 200 kWh in, 172 out each
+    assert near(y["battery_charged"], 400) and near(y["battery_loss"], 56) and near(y["battery_efficiency"], 0.86)
+    for key in ("went", "came"):
+        assert near(sum(y[key].values()), 1.0), y[key]
+    # direct use = yield - feed-in - charging, month by month
+    direct = sum(max(r["pv_yield"] - r["feed_kwh"] - (r["battery_charged"] or 0), 0) for r in rows)
+    # November 2024: 300 kWh yield, 180 fed in, 200 charged -> no negative direct use
+    nov = next(r for r in rows if r["month"] == "2024-11")
+    assert nov["pv_yield"] - nov["feed_kwh"] - nov["battery_charged"] < 0
+    assert near(y["direct"], direct)
+    assert near(y["went"]["battery"], 400 / (direct + 400 + y["feed_kwh"]))
+    assert near(y["came"]["grid"], y["grid_kwh"] / (direct + y["battery_discharged"] + y["grid_kwh"]))
+    assert y["peak_yield"] == "2024-07"
+    assert calc.periods([]) == []
+
+
+def test_storage_economics():
+    months, tariffs, investments = load()
+    derived = calc.derive_months(months, tariffs, investments, "monthly")
+    assert calc.storage_economics(derived, investments)["cost"] == 0  # nothing marked "Speicher" yet
+    items = investments + [
+        dict(investments[0], id=901, date="2024-11-01", label="Speicher", amount=3000.0, category="Speicher"),
+        dict(investments[0], id=902, date=None, label="Montage", amount=500.0, category=" speicher "),
+    ]
+    st = calc.storage_economics(derived, items)
+    assert st["cost"] == 3500.0 and st["items"] == 2 and st["undated_items"] == 1
+    assert st["install_month"] == "2024-11"
+    # 13 months with battery: 172 kWh saved at the energy price, minus 200 kWh at the feed-in rate
+    by = {d["month"]: d for d in derived}
+    expected = sum(172 * by[m]["price"] - 200 * 0.08 for m in by if m >= "2024-11")
+    assert near(st["benefit_total"], expected, 1e-6) and len(st["monthly"]) == 13
+    assert near(st["share"], expected / 3500)
+    growth = [sc["growth"] for sc in st["scenarios"]]
+    assert growth == [0.0, 0.02, 0.04] and all(sc["month"] for sc in st["scenarios"])
+    months_found = [sc["month"] for sc in st["scenarios"]]
+    assert months_found == sorted(months_found, reverse=True)  # rising prices pay back sooner
+    # a cheap battery is already paid back; no battery data at all means nothing to say
+    cheap = calc.storage_economics(derived, [dict(items[-2], amount=100.0)])
+    assert all(sc["month"] == "2025-11" for sc in cheap["scenarios"])
+    no_battery = [dict(m, battery_charged=None, battery_discharged=None) for m in months]
+    assert calc.storage_economics(calc.derive_months(no_battery, tariffs, investments, "monthly"), investments) is None
+
+
 def test_months():
     assert calc.month_add("2023-12", 1) == "2024-01"
     assert calc.month_add("2024-01", -1) == "2023-12"

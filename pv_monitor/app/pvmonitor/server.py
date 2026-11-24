@@ -166,7 +166,7 @@ def build_state(con, candidate=None):
     summary = calc.summarize(derived, investments)
     last = derived[-1]["month"] if derived else None
     return {
-        "settings": {"tariff_mode": mode, "plant_kwp": kwp},
+        "settings": {"tariff_mode": mode, "plant_kwp": kwp, "eeg_date": db.get_setting(con, "eeg_date") or None},
         "investments": investments,
         "tariffs": tariffs,
         "meters": db.rows(con, "SELECT * FROM meters ORDER BY id"),
@@ -174,6 +174,8 @@ def build_state(con, candidate=None):
         "summary": summary,
         "next_month": calc.month_add(last, 1) if last else calc.month_add(calc.today_month(), -1),
         "forecast": calc.forecast_billing(derived, tariffs, _today()),
+        "periods": calc.periods(derived),
+        "storage": calc.storage_economics(derived, investments),
         "checks": calc.check_month(derived, summary["last_month"]) if summary["last_month"] else [],
     }
 
@@ -275,7 +277,9 @@ def save_settings(con, request, body):
         if kwp is not None and not 0 < kwp <= 1000:
             raise Invalid("die Anlagenleistung muss zwischen 0 und 1000 kWp liegen")
         db.set_setting(con, "plant_kwp", "" if kwp is None else repr(kwp))
-    if "tariff_mode" not in body and "plant_kwp" not in body:
+    if "eeg_date" in body:
+        db.set_setting(con, "eeg_date", _date(body, "eeg_date") or "")
+    if not {"tariff_mode", "plant_kwp", "eeg_date"} & set(body):
         raise Invalid("keine Einstellung übergeben")
 
 

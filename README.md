@@ -1,8 +1,10 @@
 # PV Monitor
 
-Home Assistant add-on for a private PV system. The start page draws the roof
-with its strings, grid, battery and consumers, live or for a day, month or
-year, from sensors picked in a setup page. The economics part covers investments,
+Home Assistant add-on for a private PV system. The start page tells the year:
+yield and grid draw per month, autarky, value, where the energy went; further
+pages show the months since start and the battery with its own payback. The
+plant page draws the roof with its strings, grid, battery and consumers, live or
+for a day, month or year. The economics part covers investments,
 tariff history with energy and base price, monthly values, amortisation and
 effective price per drawn kWh, plus a forecast of the running billing period.
 
@@ -33,3 +35,7 @@ python tests/test_migration.py
 
 Captured values (readings, monthly values, tariffs, investments) are stored;
 everything derived is recomputed on every request in `pvmonitor/calc.py`.
+
+Changes per version: `CHANGELOG.md`. The fonts Inter and Space Grotesk ship
+with the add-on under the SIL Open Font License 1.1
+(`pv_monitor/app/pvmonitor/static/fonts/OFL.txt`).

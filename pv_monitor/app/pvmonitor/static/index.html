@@ -3,25 +3,48 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>PV Monitor</title>
+<script>
+  // Apply the viewer's theme before the first paint; "auto" follows the device.
+  try {
+    const t = localStorage.getItem("pvm-theme");
+    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  } catch (e) { /* storage may be blocked: stay on auto */ }
+</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
-  <h1>PV Monitor</h1>
-  <nav id="tabs">
-    <button data-tab="plant" class="active">Anlage</button>
+  <p class="brand">
+    <svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="7" fill="var(--sun)"></circle><g stroke="var(--sun)" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="2" x2="18" y2="7"></line><line x1="18" y1="29" x2="18" y2="34"></line><line x1="2" y1="18" x2="7" y2="18"></line><line x1="29" y1="18" x2="34" y2="18"></line><line x1="6.7" y1="6.7" x2="10.2" y2="10.2"></line><line x1="25.8" y1="25.8" x2="29.3" y2="29.3"></line><line x1="6.7" y1="29.3" x2="10.2" y2="25.8"></line><line x1="25.8" y1="10.2" x2="29.3" y2="6.7"></line></g></svg>
+    PV Monitor
+  </p>
+  <nav id="tabs" aria-label="Bereiche">
+    <button data-tab="year" class="active">Jahr</button>
+    <button data-tab="trend">Monate</button>
+    <button data-tab="storage">Speicher</button>
+    <button data-tab="plant">Anlage</button>
+    <span class="sep" aria-hidden="true"></span>
     <button data-tab="overview">Wirtschaft</button>
     <button data-tab="charts">Auswertungen</button>
-    <button data-tab="months">Monate</button>
+    <button data-tab="months">Erfassung</button>
     <button data-tab="tariffs">Tarife</button>
     <button data-tab="investments">Investitionen</button>
     <button data-tab="setup">Einrichtung</button>
   </nav>
+  <div id="theme" class="seg" role="group" aria-label="Darstellung">
+    <button type="button" data-theme-choice="auto">Auto</button>
+    <button type="button" data-theme-choice="light">Hell</button>
+    <button type="button" data-theme-choice="dark">Dunkel</button>
+  </div>
 </header>
 <div id="error" role="alert" hidden></div>
 <main>
-  <section id="plant"></section>
+  <section id="year"></section>
+  <section id="trend" hidden></section>
+  <section id="storage" hidden></section>
+  <section id="plant" hidden></section>
   <section id="overview" hidden></section>
   <section id="charts" hidden></section>
   <section id="months" hidden></section>
@@ -31,6 +54,7 @@
 </main>
 <script src="charts.js"></script>
 <script src="app.js"></script>
+<script src="story.js"></script>
 <script src="plant.js"></script>
 </body>
 </html>

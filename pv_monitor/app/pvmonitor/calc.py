@@ -486,5 +486,162 @@ def feed_in_mix(rate_to_10: float, rate_10_40: float, kwp):
     return (10 * rate_to_10 + (kwp - 10) * rate_10_40) / kwp
 
 
+MONTH_NAMES = ("Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August",
+               "September", "Oktober", "November", "Dezember")
+
+
+def month_span_label(first: str, last: str) -> str:
+    """'November 2025 – Oktober 2026' for the months first..last."""
+    def name(m):
+        return f"{MONTH_NAMES[int(m[5:7]) - 1]} {m[:4]}"
+    return name(first) if first == last else f"{name(first)} – {name(last)}"
+
+
+def aggregate(rows):
+    """Sums and shares over derived months (baseline months excluded).
+
+    "Where did the solar energy go": used directly, into the battery, fed in.
+    "Where did the consumption come from": directly from the roof, from the
+    battery, from the grid. Direct use is yield minus feed-in minus charging;
+    a month in which charging exceeds that (timing of meter readings) counts
+    as zero direct use rather than a negative one.
+    """
+    rows = [r for r in rows if not r["baseline"]]
+    def total(key):
+        return sum(r[key] or 0.0 for r in rows)
+    pv, feed, self_use = total("pv_yield"), total("feed_kwh"), total("self_use")
+    grid = total("grid_kwh") + total("heat_kwh")
+    charged, discharged = total("battery_charged"), total("battery_discharged")
+    direct = sum(max((r["pv_yield"] or 0) - r["feed_kwh"] - (r["battery_charged"] or 0), 0.0) for r in rows)
+    went = direct + charged + feed
+    came = direct + discharged + grid
+    costs = [r["cost_total"] for r in rows if r["cost_total"] is not None]
+    return {
+        "months": len(rows),
+        "first": rows[0]["month"] if rows else None,
+        "last": rows[-1]["month"] if rows else None,
+        "pv_yield": pv,
+        "feed_kwh": feed,
+        "grid_kwh": grid,
+        "self_use": self_use,
+        "total_consumption": self_use + grid,
+        "autarky": _ratio(self_use, self_use + grid),
+        "own_consumption_quota": _ratio(self_use, pv),
+        "battery_charged": charged,
+        "battery_discharged": discharged,
+        "battery_loss": charged - discharged,
+        "battery_efficiency": _ratio(discharged, charged),
+        "direct": direct,
+        "went": {"direct": _ratio(direct, went), "battery": _ratio(charged, went), "feed": _ratio(feed, went)},
+        "came": {"direct": _ratio(direct, came), "battery": _ratio(discharged, came), "grid": _ratio(grid, came)},
+        "saving": total("saving"),
+        "feed_revenue": total("feed_revenue"),
+        "revenue": total("revenue"),
+        "cost_total": sum(costs) if len(costs) == len(rows) and rows else None,
+        "peak_yield": max(rows, key=lambda r: r["pv_yield"] or 0)["month"] if rows else None,
+        "peak_grid": max(rows, key=lambda r: r["grid_kwh"] + r["heat_kwh"])["month"] if rows else None,
+    }
+
+
+def periods(derived):
+    """The time ranges the overview pages offer, newest data last.
+
+    Every range carries its first and last month and a written-out label, so
+    no figure is shown without the time it belongs to.
+    """
+    real = [d for d in derived if not d["baseline"]]
+    if not real:
+        return []
+    out = []
+
+    def add(key, label, rows, kind):
+        if rows:
+            agg = aggregate(rows)
+            out.append({"key": key, "label": label, "kind": kind,
+                        "span": month_span_label(agg["first"], agg["last"]), **agg})
+
+    add("last12", "Letzte 12 Monate", real[-12:], "rolling")
+    last = real[-1]["month"]
+    for year in sorted({d["month"][:4] for d in real}):
+        rows = [d for d in real if d["month"][:4] == year]
+        complete = len(rows) == 12
+        if complete:
+            label = year
+        elif year == last[:4]:
+            label = f"{year} bisher"
+        else:
+            label = f"{year} ab {MONTH_NAMES[int(rows[0]['month'][5:7]) - 1][:3]}."
+        add(f"y{year}", label, rows, "year" if complete else "partial")
+    add("all", "Seit Start", real, "all")
+    return out
+
+
+STORAGE_CATEGORY = "speicher"
+STORAGE_AGING = 0.015  # loss of usable capacity per year, an assumption shown on the page
+STORAGE_PRICE_GROWTH = (0.0, 0.02, 0.04)
+
+
+def storage_economics(derived, investments, aging=STORAGE_AGING, growth=STORAGE_PRICE_GROWTH, max_years=40):
+    """Payback of the battery alone.
+
+    Cost: all investments of category "Speicher". Benefit per month: what the
+    discharged energy saved at that month's energy price, minus the feed-in
+    tariff the charged energy would otherwise have earned. The projection
+    repeats the last twelve months' benefit, shrinking by ``aging`` per year,
+    with the energy price rising by each rate in ``growth``.
+    """
+    real = [d for d in derived if not d["baseline"]]
+    items = [i for i in investments if (i.get("category") or "").strip().lower() == STORAGE_CATEGORY]
+    cost = sum(i["amount"] for i in items)
+    dated = sorted(i["date"][:7] for i in items if i.get("date"))
+    with_battery = [d for d in real if d["battery_charged"]]
+    install = dated[0] if dated else (with_battery[0]["month"] if with_battery else None)
+    if install is None:
+        return None
+
+    def worth(d):
+        return (d["battery_discharged"] or 0) * (d["price"] or 0)
+
+    def foregone(d):
+        return (d["battery_charged"] or 0) * (d["feed_price"] or 0)
+
+    since = [d for d in real if d["month"] >= install]
+    monthly = [{"month": d["month"], "benefit": worth(d) - foregone(d)} for d in since]
+    benefit_total = sum(m["benefit"] for m in monthly)
+    last12 = since[-12:]
+    worth12, foregone12 = sum(worth(d) for d in last12), sum(foregone(d) for d in last12)
+    out = {
+        "cost": cost,
+        "items": len(items),
+        "undated_items": len(items) - len(dated),
+        "install_month": install,
+        "last_month": real[-1]["month"],
+        "benefit_total": benefit_total,
+        "benefit_12": worth12 - foregone12,
+        "benefit_12_months": len(last12),
+        "monthly": monthly,
+        "share": _ratio(benefit_total, cost) if cost > 0 else None,
+        "aging": aging,
+        "scenarios": [],
+    }
+    if cost <= 0 or len(last12) < 12:
+        return out
+    for g in growth:
+        cum, month, reached = benefit_total, real[-1]["month"], None
+        if cum >= cost:
+            reached = month
+        for i in range(max_years * 12):
+            if reached:
+                break
+            month = month_add(month, 1)
+            years = i // 12 + 1
+            keep = (1 - aging) ** years
+            cum += (worth12 * (1 + g) ** years * keep - foregone12 * keep) / 12
+            if cum >= cost:
+                reached = month
+        out["scenarios"].append({"growth": g, "month": reached})
+    return out
+
+
 def today_month() -> str:
     return date.today().strftime("%Y-%m")
